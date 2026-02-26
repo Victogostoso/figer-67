@@ -1,0 +1,110 @@
+:root {
+    --p1-color: #00f7ff; /* Cyan Neon */
+    --p2-color: #ff00ff; /* Pink Neon */
+    --bg-dark: #0a0a0c;
+    --accent: #ffae00;
+    --font-main: 'Inter', sans-serif;
+    --font-gaming: 'Orbitron', sans-serif;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-dark);
+    color: #fff;
+    font-family: var(--font-main);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+}
+
+#game-container {
+    position: relative;
+    width: 60rem; /* 960px approx */
+    height: 37.5rem; /* 600px approx */
+    background-image: url('cyberpunk_duel_background.png');
+    background-size: cover;
+    background-position: center;
+    border: 4px solid #1a1a1e;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.7);
+    overflow: hidden;
+}
+
+#gameCanvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+#overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background-color: rgba(0, 0, 0, 0.6);
+}
+
+#start-btn, #restart-btn {
+    padding: 1rem 2.5rem;
+    font-family: var(--font-gaming);
+    font-size: 1.5rem;
+    font-weight: 900;
+    color: var(--bg-dark);
+    background-color: var(--accent);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    box-shadow: 0 0 20px var(--accent);
+    transition: all 0.2s ease;
+}
+
+#start-btn:hover, #restart-btn:hover {
+    transform: scale(1.05);
+    background-color: #fff;
+    box-shadow: 0 0 30px #fff;
+}
+
+#game-over {
+    text-align: center;
+}
+
+#game-over h1 {
+    font-family: var(--font-gaming);
+    font-size: 4rem;
+    font-weight: 900;
+    text-shadow: 0 0 20px var(--p2-color);
+    margin-bottom: 2rem;
+}
+
+.hidden {
+    display: none !important;
+}
+
+#message-center {
+    font-family: var(--font-gaming);
+    font-size: 1.2rem;
+    color: #fff;
+    text-transform: uppercase;
+    height: 1.5rem;
+    margin-bottom: 1rem;
+    letter-spacing: 2px;
+}
+
+/* Animations */
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+.blink-red {
+    color: #ff4444 !important;
+    animation: blink 0.5s infinite;
+}
