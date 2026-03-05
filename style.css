@@ -1,6 +1,8 @@
 :root {
-    --p1-color: #00f7ff; /* Cyan Neon */
-    --p2-color: #ff00ff; /* Pink Neon */
+    --p1-color: #00f7ff;
+    /* Cyan Neon */
+    --p2-color: #ff00ff;
+    /* Pink Neon */
     --bg-dark: #0a0a0c;
     --accent: #ffae00;
     --font-main: 'Inter', sans-serif;
@@ -23,9 +25,11 @@ body {
 
 #game-container {
     position: relative;
-    width: 60rem; /* 960px approx */
-    height: 37.5rem; /* 600px approx */
-    background-image: url('cyberpunk_duel_background.png');
+    width: 60rem;
+    /* 960px approx */
+    height: 37.5rem;
+    /* 600px approx */
+    background-image: linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url('fundo_messier.png');
     background-size: cover;
     background-position: center;
     border: 4px solid #1a1a1e;
@@ -49,27 +53,124 @@ body {
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    background-color: rgba(0, 0, 0, 0.6);
+    background-color: rgba(5, 5, 10, 0.85);
+    background-image: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    background-size: 100% 2px, 3px 100%;
+    z-index: 10;
 }
 
-#start-btn, #restart-btn {
-    padding: 1rem 2.5rem;
+#lobby-content {
+    text-align: center;
+    animation: fadeIn 1s ease-out;
+}
+
+#game-title {
     font-family: var(--font-gaming);
-    font-size: 1.5rem;
+    font-size: 5.5rem;
     font-weight: 900;
-    color: var(--bg-dark);
+    margin: 0;
+    letter-spacing: -4px;
+    color: #fff;
+    text-shadow: 0 0 10px #fff, 0 0 20px var(--p1-color), 0 0 30px var(--p2-color);
+    animation: flicker 4s infinite;
+}
+
+#game-title span {
+    color: var(--accent);
+}
+
+#system-status {
+    font-family: var(--font-gaming);
+    font-size: 0.8rem;
+    color: var(--accent);
+    margin-bottom: 2rem;
+    letter-spacing: 2px;
+}
+
+.status-line {
+    margin: 4px 0;
+    opacity: 0.8;
+}
+
+.pulse {
+    animation: blink 1s infinite;
+}
+
+#start-btn,
+#restart-btn {
+    padding: 1.2rem 3.5rem;
+    font-family: var(--font-gaming);
+    font-size: 1.4rem;
+    font-weight: 900;
+    color: #000;
     background-color: var(--accent);
     border: none;
-    border-radius: 4px;
+    border-radius: 2px;
     cursor: pointer;
     box-shadow: 0 0 20px var(--accent);
-    transition: all 0.2s ease;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    text-transform: uppercase;
 }
 
-#start-btn:hover, #restart-btn:hover {
-    transform: scale(1.05);
+#start-btn:hover,
+#restart-btn:hover {
+    transform: scale(1.1);
     background-color: #fff;
-    box-shadow: 0 0 30px #fff;
+    box-shadow: 0 0 40px #fff;
+}
+
+#controls-hint {
+    display: flex;
+    gap: 4rem;
+    margin-top: 3rem;
+}
+
+.control-box {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    width: 12rem;
+    text-align: center;
+}
+
+.control-box h3 {
+    font-family: var(--font-gaming);
+    margin-bottom: 1rem;
+    font-size: 1rem;
+}
+
+.control-box p {
+    font-size: 0.85rem;
+    margin: 0.5rem 0;
+    color: #ccc;
+}
+
+.control-box span {
+    display: block;
+    color: #fff;
+    font-weight: bold;
+    margin-top: 0.2rem;
+    padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+}
+
+.p1-hint {
+    border-left: 4px solid var(--p1-color);
+}
+
+.p1-hint h3 {
+    color: var(--p1-color);
+}
+
+.p2-hint {
+    border-left: 4px solid var(--p2-color);
+}
+
+.p2-hint h3 {
+    color: var(--p2-color);
 }
 
 #game-over {
@@ -98,10 +199,52 @@ body {
     letter-spacing: 2px;
 }
 
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes flicker {
+
+    0%,
+    19%,
+    21%,
+    23%,
+    25%,
+    54%,
+    56%,
+    100% {
+        text-shadow: 0 0 10px #fff, 0 0 20px var(--p1-color), 0 0 30px var(--p2-color);
+        opacity: 1;
+    }
+
+    20%,
+    22%,
+    24%,
+    55% {
+        text-shadow: none;
+        opacity: 0.5;
+    }
+}
+
 /* Animations */
 @keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0;
+    }
 }
 
 .blink-red {

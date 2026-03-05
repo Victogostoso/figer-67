@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-br">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,14 +8,38 @@
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;700&display=swap"
+        rel="stylesheet">
 </head>
+
 <body>
     <div id="game-container">
         <canvas id="gameCanvas"></canvas>
         <div id="overlay">
-            <div id="message-center"></div>
-            <button id="start-btn">INICIAR DUELO</button>
+            <div id="lobby-content">
+                <h1 id="game-title">FINGER <span>67</span></h1>
+                <div id="system-status">
+                    <div class="status-line">SYSTEM: ONLINE</div>
+                    <div class="status-line pulse">WAITING FOR OPERATORS...</div>
+                </div>
+                <div id="message-center"></div>
+                <button id="start-btn">INICIAR SEQUÊNCIA</button>
+            </div>
+            <div id="controls-hint">
+                <div class="control-box p1-hint">
+                    <h3>JOGADOR 1</h3>
+                    <p>Mover: <span>W A S D</span></p>
+                    <p>Atirar: <span>ESPAÇO</span></p>
+                    <p>Dash: <span>SHIFT</span></p>
+                </div>
+                <div class="control-box p2-hint">
+                    <h3>JOGADOR 2</h3>
+                    <p>Mover: <span>SETAS</span></p>
+                    <p>Atirar: <span>ENTER</span></p>
+                    <p>Dash: <span>R-SHIFT</span></p>
+                </div>
+            </div>
             <div id="game-over" class="hidden">
                 <h1 id="winner-text">GAME OVER</h1>
                 <button id="restart-btn">NOVO DUELO</button>
@@ -23,4 +48,5 @@
     </div>
     <script src="game.js"></script>
 </body>
+
 </html>
