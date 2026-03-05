@@ -36,6 +36,7 @@ let player1, player2;
 let bullets = [];
 let ammoBoxes = [];
 let obstacles = []; // Novo: Obstáculos destrutíveis
+let obstacleTimer; // Controle de respawn
 let particles = []; // Novo: Sistema de partículas
 let screenShake = 0; // Novo: Intensidade do tremor
 let keys = {};
@@ -301,6 +302,11 @@ function startGame() {
     overlay.classList.add('hidden');
     gameOverScreen.classList.add('hidden');
     if (controlsHint) controlsHint.classList.add('hidden');
+
+    // Inicia respawn de obstáculos a cada 7 segundos
+    if (obstacleTimer) clearInterval(obstacleTimer);
+    obstacleTimer = setInterval(spawnObstacles, 7000);
+
     requestAnimationFrame(gameLoop);
 }
 
@@ -310,6 +316,7 @@ function startGame() {
 function endGame(winner) {
     AudioEngine.bgm.stop();
     AudioEngine.playVictory(); // Toca música de vitória
+    if (obstacleTimer) clearInterval(obstacleTimer); // Para o respawn
     gameActive = false;
     overlay.classList.remove('hidden');
     gameOverScreen.classList.remove('hidden');
