@@ -26,12 +26,8 @@ body {
 #game-container {
     position: relative;
     width: 60rem;
-    /* 960px approx */
     height: 37.5rem;
-    /* 600px approx */
-    background-image: linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url('fundo_messier.png');
-    background-size: cover;
-    background-position: center;
+    background-color: #000; /* Fundo preto sólido antes do canvas carregar */
     border: 4px solid #1a1a1e;
     box-shadow: 0 0 50px rgba(0, 0, 0, 0.7);
     overflow: hidden;
@@ -94,6 +90,42 @@ body {
 
 .pulse {
     animation: blink 1s infinite;
+}
+
+.bot-hint {
+    color: var(--p2-color);
+    font-size: 0.7rem;
+    margin-top: 10px;
+}
+
+#mode-selection {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    margin-bottom: 2rem;
+}
+
+.mode-btn {
+    padding: 0.8rem 1.5rem;
+    font-family: var(--font-gaming);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.mode-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.mode-btn.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 15px var(--accent);
+    color: var(--accent);
+    background: rgba(255, 174, 0, 0.1);
 }
 
 #start-btn,

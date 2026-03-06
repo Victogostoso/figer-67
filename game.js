@@ -22,8 +22,8 @@ canvas.height = GAME_HEIGHT;
 // Constantes de Jogo
 const PLAYER_SIZE = 40;
 const BULLET_RADIUS = 5;
-const PLAYER_SPEED = 5;
-const BULLET_SPEED = 12;
+const PLAYER_SPEED = 4;
+const BULLET_SPEED = 10;
 const INITIAL_LIVES = 5;
 const MAX_AMMO = 5;
 const DASH_DISTANCE = 100;
@@ -32,14 +32,24 @@ const SHOOT_COOLDOWN = 400; // Novo: 0.4s entre tiros para evitar bagunça
 
 // Estado do Jogo
 let gameActive = false;
+let gameSpeed = 1.0; // Novo: Multiplicador de velocidade (Slow Mo)
 let player1, player2;
 let bullets = [];
 let ammoBoxes = [];
-let obstacles = []; // Novo: Obstáculos destrutíveis
+let obstacles = [];
 let obstacleTimer; // Controle de respawn
-let particles = []; // Novo: Sistema de partículas
-let screenShake = 0; // Novo: Intensidade do tremor
+let particles = [];
+let debris = []; // Novo: Destroços maiores pós-morte
+let screenShake = 0; 
 let keys = {};
+let isSoloMode = true; // Novo: Padrão solo se J2 não se mexer
+let bgImage = new Image();
+bgImage.src = 'fundo_messier.png';
+let bgX = 0;
+let shieldBox = null; // Novo: Coletável de escudo
+let camera = { x: 0, y: 0, scale: 1, active: false, targetBullet: null }; // Novo: targetBullet para rastreio
+let botLastDecision = 0; // Para IA decidir novos pontos
+let botAITarget = { x: 0, y: 0 };
 
 // Cores Neon
 const COLORS = {
@@ -61,6 +71,25 @@ function createExplosion(x, y, color) {
             vx: (Math.random() - 0.5) * 10,
             vy: (Math.random() - 0.5) * 10,
             life: 1.0,
+            color: color
+        });
+    }
+}
+
+/**
+ * Cria destroços maiores para explosão final
+ */
+function createDebris(x, y, color) {
+    for (let i = 0; i < 60; i++) { // Aumentado para 60 para mais impacto
+        debris.push({
+            x: x,
+            y: y,
+            vx: (Math.random() - 0.5) * 15,
+            vy: (Math.random() - 0.5) * 15,
+            size: Math.random() * 8 + 4,
+            angle: Math.random() * Math.PI * 2,
+            rotSpeed: (Math.random() - 0.5) * 0.2,
+            life: 1.5,
             color: color
         });
     }
@@ -232,12 +261,19 @@ function resetPlayers() {
         y: GAME_HEIGHT / 2 - PLAYER_SIZE / 2,
         width: PLAYER_SIZE,
         height: PLAYER_SIZE,
-        vida: player1 ? player1.vida : INITIAL_LIVES,
+        vida: INITIAL_LIVES,
         balas: MAX_AMMO,
         color: COLORS.p1,
-        dir: 1, // 1 para direita, -1 para esquerda
+        dir: 1, 
         dashReady: true,
-        shootReady: true
+        shootReady: true,
+        shield: false,
+        invulnerable: false,
+        angle: 0,
+        chargeTime: 0, 
+        recoilOffset: { x: 0, y: 0 }, 
+        handState: 'pointing',
+        destroyed: false // Novo: para sumir na explosão
     };
 
     player2 = {
@@ -246,35 +282,57 @@ function resetPlayers() {
         y: GAME_HEIGHT / 2 - PLAYER_SIZE / 2,
         width: PLAYER_SIZE,
         height: PLAYER_SIZE,
-        vida: player2 ? player2.vida : INITIAL_LIVES,
+        vida: INITIAL_LIVES,
         balas: MAX_AMMO,
         color: COLORS.p2,
         dir: -1,
         dashReady: true,
-        shootReady: true
+        shootReady: true,
+        shield: false,
+        invulnerable: false,
+        angle: Math.PI,
+        chargeTime: 0,
+        recoilOffset: { x: 0, y: 0 },
+        handState: 'pointing',
+        destroyed: false
     };
 
     particles = [];
-    spawnAmmo(); // Garante que há munição no chão
+    spawnAmmo(); 
     spawnObstacles();
+    spawnShield(); // Novo: Chance de escudo
+}
+
+/**
+ * Gera um escudo em posição aleatória
+ */
+function spawnShield() {
+    if (Math.random() > 0.7) { // 30% de chance de spawnar um escudo
+        const margin = 100;
+        shieldBox = {
+            x: margin + Math.random() * (GAME_WIDTH - 2 * margin),
+            y: margin + Math.random() * (GAME_HEIGHT - 2 * margin),
+            active: true
+        };
+    } else {
+        shieldBox = null;
+    }
 }
 
 /**
  * Gera obstáculos no centro
  */
 function spawnObstacles() {
-    obstacles = [];
-    const count = 3; // 3 pilares de cobertura
-    for (let i = 0; i < count; i++) {
-        obstacles.push({
-            x: GAME_WIDTH / 2 - 20,
-            y: 100 + i * 180,
-            w: 40,
-            h: 80,
-            hp: 2,
-            maxHp: 2
-        });
-    }
+    obstacles = [{
+        x: GAME_WIDTH / 2 - 15,
+        y: GAME_HEIGHT / 2 - 60,
+        w: 30,
+        h: 120,
+        hp: 2, // Agora durável até 2 hits
+        maxHp: 2,
+        vy: 3, 
+        dir: 1 
+    }];
 }
 
 /**
@@ -303,11 +361,12 @@ function startGame() {
     gameOverScreen.classList.add('hidden');
     if (controlsHint) controlsHint.classList.add('hidden');
 
-    // Inicia respawn de obstáculos a cada 7 segundos
+    // Inicia barreira central única
     if (obstacleTimer) clearInterval(obstacleTimer);
-    obstacleTimer = setInterval(spawnObstacles, 7000);
+    spawnObstacles();
 
     requestAnimationFrame(gameLoop);
+    lastTime = 0; // Reseta o tempo para o loop começar limpo
 }
 
 /**
@@ -315,28 +374,66 @@ function startGame() {
  */
 function endGame(winner) {
     AudioEngine.bgm.stop();
-    AudioEngine.playVictory(); // Toca música de vitória
-    if (obstacleTimer) clearInterval(obstacleTimer); // Para o respawn
-    gameActive = false;
-    overlay.classList.remove('hidden');
-    gameOverScreen.classList.remove('hidden');
-    startBtn.classList.add('hidden');
-    winnerText.innerText = winner === 1 ? "RAFAEL VENCEU!" : "ROSSETTI VENCEU!";
-    winnerText.style.textShadow = `0 0 20px ${winner === 1 ? COLORS.p1 : COLORS.p2}`;
+    AudioEngine.playVictory(); 
+    
+    if (obstacleTimer) clearInterval(obstacleTimer);
+    
+    // ATIVA O SLOW MOTION FINAL (SOLICITADO 2%)
+    gameSpeed = 0.02; 
+    
+    // Zoom Maciço no momento da desintegração
+    camera.scale = 8.0; 
+
+    // Explosão massiva de destroços no perdedor
+    const target = (winner === 1) ? player2 : player1;
+    target.destroyed = true; // Jogador some instantaneamente
+    createDebris(target.x + target.width/2, target.y + target.height/2, target.color);
+    
+    setTimeout(() => {
+        gameSpeed = 1.0; 
+        camera.active = false;
+        camera.targetBullet = null;
+        camera.scale = 1.0;
+        gameActive = false;
+        debris = []; // Limpa destroços para o próximo round
+        overlay.classList.remove('hidden');
+        gameOverScreen.classList.remove('hidden');
+        startBtn.classList.add('hidden');
+        winnerText.innerText = winner === 1 ? "RAFAEL VENCEU!" : "ROSSETTI VENCEU!";
+        winnerText.style.textShadow = `0 0 20px ${winner === 1 ? COLORS.p1 : COLORS.p2}`;
+    }, 1500); 
 }
 
 // Event Listeners
 window.addEventListener('keydown', (e) => keys[e.code] = true);
 window.addEventListener('keyup', (e) => keys[e.code] = false);
 
+const soloBtn = document.getElementById('solo-btn');
+const duoBtn = document.getElementById('duo-btn');
+
 startBtn.addEventListener('click', startGame);
 restartBtn.addEventListener('click', startGame);
+
+soloBtn.addEventListener('click', () => {
+    isSoloMode = true;
+    soloBtn.classList.add('selected');
+    duoBtn.classList.remove('selected');
+});
+
+duoBtn.addEventListener('click', () => {
+    isSoloMode = false;
+    duoBtn.classList.add('selected');
+    soloBtn.classList.remove('selected');
+});
 
 /**
  * Lógica do TIRO
  */
-function shoot(player) {
+function shoot(player, isCharged = false) {
     if (player.balas > 0 && player.shootReady) {
+        // Conversão automática: se não tem munição para carregado, solta normal
+        if (isCharged && player.balas < 2) isCharged = false;
+        
         AudioEngine.playShoot();
 
         // Determina a direção vertical baseada no movimento atual
@@ -344,30 +441,39 @@ function shoot(player) {
         if (player.id === 1) {
             if (keys['KeyW']) vDir = -4;
             else if (keys['KeyS']) vDir = 4;
-        } else {
+        } else if (!isSoloMode) {
             if (keys['ArrowUp']) vDir = -4;
             else if (keys['ArrowDown']) vDir = 4;
+        } else {
+            // IA Inclinando o tiro se o alvo estiver longe verticalmente
+            const diffY = player1.y - player.y;
+            if (Math.abs(diffY) > 50) vDir = diffY > 0 ? 3 : -3;
         }
 
         bullets.push({
             x: player.dir === 1 ? player.x + player.width + BULLET_RADIUS : player.x - BULLET_RADIUS,
             y: player.y + player.height / 2,
-            vx: player.dir * BULLET_SPEED,
-            vy: vDir, // Tiro reto por padrão, ou inclinado se estiver se movendo
+            vx: player.dir * (isCharged ? BULLET_SPEED * 0.7 : BULLET_SPEED),
+            vy: vDir,
             owner: player.id,
-            color: player.color, // Atribui a cor do jogador à bala
+            color: player.color,
             bounces: 0,
-            trail: []
+            trail: [],
+            isCharged: isCharged, // Novo: identifica se é um tiro gigante
+            radius: isCharged ? 30 : BULLET_RADIUS
         });
 
-        player.balas--;
+        // Efeito de Recuo (Coice) na mão
+        player.recoilOffset.x = -player.dir * (isCharged ? 15 : 8);
+        
+        player.balas -= isCharged ? 2 : 1;
         player.shootReady = false;
-        screenShake = 3;
+        screenShake = isCharged ? 10 : 3;
 
         // Inicia cooldown do tiro
         setTimeout(() => {
             player.shootReady = true;
-        }, SHOOT_COOLDOWN);
+        }, isCharged ? SHOOT_COOLDOWN * 2 : SHOOT_COOLDOWN);
     } else if (player.balas === 0 && player.shootReady) {
         AudioEngine.playError();
     }
@@ -376,20 +482,35 @@ function shoot(player) {
 /**
  * Atualização do Estado
  */
-function update() {
-    if (!gameActive) return;
+function update(speed) {
+    if (!gameActive && speed === 1.0) return;
+
+    const moveStep = PLAYER_SPEED * speed;
+    const bulletStep = speed; // Multiplicador para o movimento das balas
 
     // Movimento e Dash Player 1
-    if (keys['KeyW'] && player1.y > 0) player1.y -= PLAYER_SPEED;
-    if (keys['KeyS'] && player1.y < GAME_HEIGHT - player1.height) player1.y += PLAYER_SPEED;
-    if (keys['KeyA'] && player1.x > 0) player1.x -= PLAYER_SPEED;
-    if (keys['KeyD'] && player1.x < GAME_WIDTH / 2 - player1.width) player1.x += PLAYER_SPEED;
+    if (keys['KeyW'] && player1.y > 0) { player1.y -= moveStep; player1.angle = -Math.PI/2; }
+    if (keys['KeyS'] && player1.y < GAME_HEIGHT - player1.height) { player1.y += moveStep; player1.angle = Math.PI/2; }
+    if (keys['KeyA'] && player1.x > 0) { player1.x -= moveStep; player1.angle = Math.PI; player1.dir = -1; }
+    if (keys['KeyD'] && player1.x < GAME_WIDTH / 2 - player1.width) { player1.x += moveStep; player1.angle = 0; player1.dir = 1; }
+    
+    //Ângulos diagonais P1
+    if (keys['KeyW'] && keys['KeyD']) player1.angle = -Math.PI/4;
+    if (keys['KeyW'] && keys['KeyA']) player1.angle = -3*Math.PI/4;
+    if (keys['KeyS'] && keys['KeyD']) player1.angle = Math.PI/4;
+    if (keys['KeyS'] && keys['KeyA']) player1.angle = 3*Math.PI/4;
 
-    // Colisão P1 com Obstáculos
+    // Movimentação da Barreira Central e Colisões
     obstacles.forEach(ob => {
+        // Move para cima e para baixo (respeitando limites da arena)
+        ob.y += ob.vy * ob.dir * speed;
+        if (ob.y <= 20 || ob.y + ob.h >= GAME_HEIGHT - 20) {
+            ob.dir *= -1;
+        }
+
+        // Colisão P1 com a Barreira
         if (player1.x < ob.x + ob.w && player1.x + player1.width > ob.x &&
             player1.y < ob.y + ob.h && player1.y + player1.height > ob.y) {
-            // Empurra para fora (simples)
             if (player1.x < ob.x) player1.x = ob.x - player1.width;
             else if (player1.x > ob.x) player1.x = ob.x + ob.w;
         }
@@ -413,15 +534,36 @@ function update() {
         player1.y = Math.max(0, Math.min(GAME_HEIGHT - player1.height, player1.y));
 
         player1.dashReady = false;
+        player1.handState = 'fist'; // Fecha o punho
         createExplosion(player1.x + player1.width / 2, player1.y + player1.height / 2, COLORS.p1);
-        setTimeout(() => player1.dashReady = true, DASH_COOLDOWN);
+        setTimeout(() => {
+            player1.dashReady = true;
+            player1.handState = 'pointing'; // Reabre
+        }, DASH_COOLDOWN);
     }
 
-    // Movimento e Dash Player 2
-    if (keys['ArrowUp'] && player2.y > 0) player2.y -= PLAYER_SPEED;
-    if (keys['ArrowDown'] && player2.y < GAME_HEIGHT - player2.height) player2.y += PLAYER_SPEED;
-    if (keys['ArrowLeft'] && player2.x > GAME_WIDTH / 2) player2.x -= PLAYER_SPEED;
-    if (keys['ArrowRight'] && player2.x < GAME_WIDTH - player2.width) player2.x += PLAYER_SPEED;
+    // Lógica de Carregamento de Tiro P1
+    if (keys['Space'] && player1.balas >= 1) {
+        player1.chargeTime += 16.6; // Aprox 60hz
+    } else if (!keys['Space'] && player1.chargeTime > 0) {
+        if (player1.chargeTime >= 800) shoot(player1, true); 
+        else shoot(player1, false);
+        player1.chargeTime = 0;
+    }
+
+    // Movimento e Dash Player 2 (SOMENTE SE NÃO FOR BOT)
+    if (!isSoloMode) {
+        if (keys['ArrowUp'] && player2.y > 0) { player2.y -= moveStep; player2.angle = -Math.PI/2; }
+        if (keys['ArrowDown'] && player2.y < GAME_HEIGHT - player2.height) { player2.y += moveStep; player2.angle = Math.PI/2; }
+        if (keys['ArrowLeft'] && player2.x > GAME_WIDTH / 2) { player2.x -= moveStep; player2.angle = Math.PI; player2.dir = -1; }
+        if (keys['ArrowRight'] && player2.x < GAME_WIDTH - player2.width) { player2.x += moveStep; player2.angle = 0; player2.dir = 1; }
+
+        // Diagonais P2
+        if (keys['ArrowUp'] && keys['ArrowRight']) player2.angle = -Math.PI/4;
+        if (keys['ArrowUp'] && keys['ArrowLeft']) player2.angle = -3*Math.PI/4;
+        if (keys['ArrowDown'] && keys['ArrowRight']) player2.angle = Math.PI/4;
+        if (keys['ArrowDown'] && keys['ArrowLeft']) player2.angle = 3*Math.PI/4;
+    }
 
     // Colisão P2 com Obstáculos
     obstacles.forEach(ob => {
@@ -432,7 +574,7 @@ function update() {
         }
     });
 
-    if (keys['ShiftRight'] && player2.dashReady) {
+    if (!isSoloMode && keys['ShiftRight'] && player2.dashReady) {
         let dx = 0, dy = 0;
         if (keys['ArrowUp']) dy -= 1;
         if (keys['ArrowDown']) dy += 1;
@@ -449,30 +591,167 @@ function update() {
         player2.y = Math.max(0, Math.min(GAME_HEIGHT - player2.height, player2.y));
 
         player2.dashReady = false;
+        player2.handState = 'fist';
         createExplosion(player2.x + player2.width / 2, player2.y + player2.height / 2, COLORS.p2);
-        setTimeout(() => player2.dashReady = true, DASH_COOLDOWN);
+        setTimeout(() => {
+            player2.dashReady = true;
+            player2.handState = 'pointing';
+        }, DASH_COOLDOWN);
     }
 
-    // Atirar
-    if (keys['Space']) { shoot(player1); keys['Space'] = false; }
-    if (keys['Enter']) { shoot(player2); keys['Enter'] = false; }
+    // Lógica de Carregamento de Tiro P2 (SÓ SE NÃO FOR BOT)
+    if (!isSoloMode) {
+        if (keys['Enter'] && player2.balas >= 1) {
+            player2.chargeTime += 16.6;
+        } else if (!keys['Enter'] && player2.chargeTime > 0) {
+            if (player2.chargeTime >= 800) shoot(player2, true);
+            else shoot(player2, false);
+            player2.chargeTime = 0;
+        }
+    }
 
+    // --- LÓGICA DE IA (SÓ SE J2 NÃO ESTIVER SENDO CONTROLADO) ---
+    if (isSoloMode) {
+        const now = Date.now();
+        const lowAmmo = player2.balas <= 1;
+
+        // IA Toma decisões baseada no tempo do jogo (afetado pelo slow motion)
+        botLastDecision += 16.6 * speed; 
+        if (botLastDecision > 800 || (lowAmmo && ammoBoxes.length > 0)) {
+            botLastDecision = 0;
+            
+            const ammoInMySide = ammoBoxes.length > 0 && ammoBoxes[0].x > GAME_WIDTH / 2;
+
+            if (lowAmmo && ammoInMySide && ammoBoxes.length > 0) {
+                // Prioridade: Munição no meu lado
+                botAITarget.x = ammoBoxes[0].x;
+                botAITarget.y = ammoBoxes[0].y;
+            } else if (lowAmmo && !ammoInMySide) {
+                // MUNIÇÃO NO LADO DO P1 E EU ESTOU VAZIO -> MODO PANIC/EVASIVE
+                // Tenta se afastar do player e se mover rápido
+                botAITarget.y = Math.random() * GAME_HEIGHT;
+                botAITarget.x = GAME_WIDTH - 100; // Recua totalmente para a direita
+            } else {
+                // Decide se ataca ou patrulha
+                if (Math.random() > 0.3) {
+                    botAITarget.y = player1.y + (Math.random() - 0.5) * 150;
+                    botAITarget.x = GAME_WIDTH - 150 - Math.random() * 200;
+                } else {
+                    botAITarget.y = 50 + Math.random() * (GAME_HEIGHT - 100);
+                    botAITarget.x = GAME_WIDTH / 2 + 100 + Math.random() * (GAME_WIDTH / 2 - 200);
+                }
+            }
+            // Garantia de limite (permite chegar perto da linha para munição)
+            botAITarget.x = Math.max(GAME_WIDTH / 2 + 5, botAITarget.x);
+        }
+
+        // Micro-oscilação visual (jitter): apenas uma leve variação secundária
+        const jitterY = Math.sin(now / 500) * (lowAmmo ? 40 : 20);
+        const jitterX = Math.cos(now / 700) * (lowAmmo ? 25 : 10);
+
+        // Movimento Suave em direção ao alvo autônomo
+        const speedMult = 1.0;
+        let movingY = 0;
+        let movingX = 0;
+
+        // Zona morta maior (25px) para evitar trocas de direção infinitas
+        if (player2.y < (botAITarget.y + jitterY) - 25) { 
+            player2.y += moveStep * speedMult; 
+            movingY = 1; 
+        } else if (player2.y > (botAITarget.y + jitterY) + 25) { 
+            player2.y -= moveStep * speedMult; 
+            movingY = -1; 
+        }
+
+        if (player2.x < (botAITarget.x + jitterX) - 25) { 
+            player2.x += moveStep * speedMult; 
+            movingX = 1; 
+        } else if (player2.x > (botAITarget.x + jitterX) + 25) { 
+            player2.x -= moveStep * speedMult; 
+            movingX = -1; 
+        }
+
+        // Atualização Suave do Ângulo (evita snapping brusco, respeita o slow motion)
+        let targetAngle = player2.angle;
+        if (movingX === 1) targetAngle = 0;
+        else if (movingX === -1) targetAngle = Math.PI;
+        else if (movingY === 1) targetAngle = Math.PI/2;
+        else if (movingY === -1) targetAngle = -Math.PI/2;
+
+        // Interpolação ponderada pela velocidade
+        player2.angle += (targetAngle - player2.angle) * 0.1 * speed;
+
+        // Limites Físicos Estritos (Não atravessar o centro jamais)
+        player2.x = Math.max(GAME_WIDTH / 2 + 5, Math.min(GAME_WIDTH - player2.width, player2.x));
+        player2.y = Math.max(0, Math.min(GAME_HEIGHT - player2.height, player2.y));
+
+        // Atira se estiver alinhado verticalmente com o jogador
+        const aligned = Math.abs(player2.y - player1.y) < 50;
+        if (aligned && player2.balas > 0 && Math.random() < 0.03) {
+            const useCharged = player2.balas >= 3 && Math.random() > 0.8;
+            if (useCharged) {
+                // Bot carrega visualmente
+                player2.chargeTime = 800;
+                setTimeout(() => {
+                    if (gameActive) shoot(player2, true);
+                    player2.chargeTime = 0;
+                }, 400);
+            } else {
+                shoot(player2, false);
+            }
+        }
+
+        // Tenta desviar de balas com Dash reativo (único reflexo direto)
+        bullets.forEach(b => {
+            if (b.owner === 1 && Math.abs(b.y - player2.y) < 60 && b.x > GAME_WIDTH * 0.7) {
+                if (player2.dashReady) {
+                    const dashDir = b.y > player2.y ? -1 : 1;
+                    player2.y += dashDir * DASH_DISTANCE;
+                    player2.y = Math.max(0, Math.min(GAME_HEIGHT - player2.height, player2.y));
+                    
+                    player2.dashReady = false;
+                    createExplosion(player2.x + player2.width/2, player2.y + player2.height/2, COLORS.p2);
+                    setTimeout(() => player2.dashReady = true, DASH_COOLDOWN);
+                }
+            }
+        });
+    }
+
+    // Suavização do Recuo (Cooldown visual)
+    player1.recoilOffset.x *= 0.8;
+    player2.recoilOffset.x *= 0.8;
+
+    // Atirar (Input normal bloqueado se estiver carregando)
+    // Os botões agora são gerenciados pela lógica de carga acima para evitar tiro duplo
+    
     // Atualiza Balas
     bullets.forEach((bullet, index) => {
         bullet.trail.push({ x: bullet.x, y: bullet.y });
         if (bullet.trail.length > 8) bullet.trail.shift();
 
-        bullet.x += bullet.vx;
-        bullet.y += bullet.vy;
+        bullet.x += bullet.vx * bulletStep;
+        bullet.y += bullet.vy * bulletStep;
 
         // Ricochete Teto/Chão
         if (bullet.y < 0 || bullet.y > GAME_HEIGHT) {
-            if (bullet.bounces < 1) { // Reduzido para apenas 1 ricochete
+            if (bullet.bounces < (bullet.isCharged ? 0 : 1)) { 
                 bullet.vy *= -1;
                 bullet.y = bullet.y < 0 ? 0 : GAME_HEIGHT;
                 bullet.bounces++;
                 screenShake = 2;
+
+                // Cancela Bullet Time se bater na "tabela"
+                if (camera.targetBullet === bullet) {
+                    gameSpeed = 1.0;
+                    camera.active = false;
+                    camera.targetBullet = null;
+                }
             } else {
+                if (camera.targetBullet === bullet) {
+                    gameSpeed = 1.0;
+                    camera.active = false;
+                    camera.targetBullet = null;
+                }
                 bullets.splice(index, 1);
                 return;
             }
@@ -480,12 +759,24 @@ function update() {
 
         // Ricochete Paredes Laterais
         if (bullet.x < 0 || bullet.x > GAME_WIDTH) {
-            if (bullet.bounces < 1) { // Reduzido para apenas 1 ricochete
+            if (bullet.bounces < 1) { 
                 bullet.vx *= -1;
                 bullet.x = bullet.x < 0 ? 0 : GAME_WIDTH;
                 bullet.bounces++;
                 screenShake = 2;
+
+                // Cancela Bullet Time se bater na parede lateral
+                if (camera.targetBullet === bullet) {
+                    gameSpeed = 1.0;
+                    camera.active = false;
+                    camera.targetBullet = null;
+                }
             } else {
+                if (camera.targetBullet === bullet) {
+                    gameSpeed = 1.0;
+                    camera.active = false;
+                    camera.targetBullet = null;
+                }
                 bullets.splice(index, 1);
                 return;
             }
@@ -496,46 +787,125 @@ function update() {
             if (bullet.x > ob.x && bullet.x < ob.x + ob.w &&
                 bullet.y > ob.y && bullet.y < ob.y + ob.h) {
 
-                ob.hp--;
+                ob.hp -= bullet.isCharged ? 3 : 1;
                 AudioEngine.playHit();
-                createExplosion(bullet.x, bullet.y, '#555'); // Poeira cinza
-                bullets.splice(index, 1);
-                screenShake = 4;
+                createExplosion(bullet.x, bullet.y, '#555'); 
+                
+                // Cancela Bullet Time se bater num obstáculo
+                if (camera.targetBullet === bullet) {
+                    gameSpeed = 1.0;
+                    camera.active = false;
+                    camera.targetBullet = null;
+                }
 
+                if (!bullet.isCharged) bullets.splice(index, 1); 
+                else screenShake = 6;
+                
                 if (ob.hp <= 0) {
-                    createExplosion(ob.x + ob.w / 2, ob.y + ob.h / 2, '#fff'); // Explosão ao destruir
+                    createExplosion(ob.x + ob.w / 2, ob.y + ob.h / 2, '#fff');
                     obstacles.splice(obIdx, 1);
+                    
+                    // Renasce em 10 segundos para manter o jogo dinâmico
+                    setTimeout(spawnObstacles, 10000); 
                 }
                 return;
             }
         });
 
+        // DETECÇÃO ANTECIPADA DE BULLET TIME (Acompanhamento da Bala Fatal)
+        const potentialVictim = bullet.owner === 1 ? player2 : player1;
+        const inDangerZone = (bullet.owner === 1 && bullet.x > GAME_WIDTH * 0.8) || 
+                             (bullet.owner === 2 && bullet.x < GAME_WIDTH * 0.2);
+
+        if (potentialVictim.vida <= 1 && !potentialVictim.shield && inDangerZone && !camera.active) {
+            // Verifica se a bala está realmente na direção vertical do player
+            const verticalDist = Math.abs(bullet.y - (potentialVictim.y + potentialVictim.height/2));
+            if (verticalDist < 120) {
+                camera.active = true;
+                camera.targetBullet = bullet;
+                camera.scale = 5.0; // Zoom de percurso intenso
+                gameSpeed = 0.02; // Super slow motion no trajeto (2%)
+
+                // Limite de segurança: 3 segundos no máximo para a animação
+                setTimeout(() => {
+                    if (camera.active && gameActive) {
+                        gameSpeed = 1.0;
+                        camera.active = false;
+                        camera.targetBullet = null;
+                        camera.scale = 1.0;
+                    }
+                }, 3000);
+            }
+        }
+
+        // CANCELA BULLET TIME SE A BALA ERRAR O ALVO (Distanciar-se)
+        if (camera.active && camera.targetBullet === bullet) {
+            const passed = (bullet.owner === 1 && bullet.x > potentialVictim.x + potentialVictim.width) ||
+                           (bullet.owner === 2 && bullet.x < potentialVictim.x);
+            
+            if (passed) {
+                gameSpeed = 1.0;
+                camera.active = false;
+                camera.targetBullet = null;
+            }
+        }
+
         // Colisão com Jogadores
         const p1Hit = bullet.owner === 2 &&
-            bullet.x > player1.x && bullet.x < player1.x + player1.width &&
-            bullet.y > player1.y && bullet.y < player1.y + player1.height;
+            Math.abs(bullet.x - (player1.x + player1.width/2)) < (bullet.radius + player1.width/2) &&
+            Math.abs(bullet.y - (player1.y + player1.height/2)) < (bullet.radius + player1.height/2);
 
         const p2Hit = bullet.owner === 1 &&
-            bullet.x > player2.x && bullet.x < player2.x + player2.width &&
-            bullet.y > player2.y && bullet.y < player2.y + player2.height;
+            Math.abs(bullet.x - (player2.x + player2.width/2)) < (bullet.radius + player2.width/2) &&
+            Math.abs(bullet.y - (player2.y + player2.height/2)) < (bullet.radius + player2.height/2);
 
         if (p1Hit || p2Hit) {
             const victim = p1Hit ? player1 : player2;
+            
+            if (victim.shield) {
+                victim.shield = false;
+                createExplosion(bullet.x, bullet.y, '#fff');
+                AudioEngine.playHit();
+                bullets.splice(index, 1);
+                return;
+            }
+
+            if (victim.invulnerable) {
+                bullets.splice(index, 1);
+                return;
+            }
+
             AudioEngine.playHit();
             createExplosion(bullet.x, bullet.y, victim.color);
             screenShake = 15;
             victim.vida--;
-            if (victim.vida <= 0) endGame(p1Hit ? 2 : 1);
-            else resetPlayers();
+            bullets.splice(index, 1); // Garante que a bala sumiu
+
+            if (victim.vida <= 0) {
+                endGame(p1Hit ? 2 : 1);
+            } else {
+                // Em vez de resetar tudo, damos invulnerabilidade temporária
+                victim.invulnerable = true;
+                setTimeout(() => victim.invulnerable = false, 1000);
+            }
         }
     });
 
     // Partículas
     particles.forEach((p, idx) => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= 0.02;
+        p.x += p.vx * bulletStep;
+        p.y += p.vy * bulletStep;
+        p.life -= 0.02 * speed;
         if (p.life <= 0) particles.splice(idx, 1);
+    });
+
+    // Destroços (Debris)
+    debris.forEach((d, idx) => {
+        d.x += d.vx * bulletStep;
+        d.y += d.vy * bulletStep;
+        d.angle += d.rotSpeed * speed;
+        d.life -= 0.01 * speed;
+        if (d.life <= 0) debris.splice(idx, 1);
     });
 
     // Colisão com Munição
@@ -552,35 +922,56 @@ function update() {
         }
     });
 
-    if (screenShake > 0) screenShake *= 0.9; // Atenuação do shake
+    // Colisão com Escudo
+    if (shieldBox && shieldBox.active) {
+        const p1Col = Math.abs(player1.x + player1.width/2 - shieldBox.x) < 30 && Math.abs(player1.y+player1.height/2 - shieldBox.y) < 30;
+        const p2Col = Math.abs(player2.x + player2.width/2 - shieldBox.x) < 30 && Math.abs(player2.y+player2.height/2 - shieldBox.y) < 30;
+        
+        if (p1Col || p2Col) {
+            const p = p1Col ? player1 : player2;
+            p.shield = true;
+            shieldBox.active = false;
+            createExplosion(shieldBox.x, shieldBox.y, '#fff');
+            setTimeout(spawnShield, 10000);
+        }
+    }
+
+    // bgX -= 0.5; // Movimento removido a pedido do usuário
+    if (screenShake > 0) screenShake *= (1 - 0.1 * speed); // Atenuação proporcional ao tempo
 }
 
 /**
  * Renderização Principal (HUD e Jogo)
  */
 function draw() {
-    ctx.save();
-    // Aplica Screen Shake
-    if (screenShake > 0.5) {
-        ctx.translate((Math.random() - 0.5) * screenShake, (Math.random() - 0.5) * screenShake);
-    }
-
     ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    if (!gameActive) {
+    // 1. DESENHA FUNDO (Sempre fixo)
+    if (bgImage.complete) {
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        ctx.drawImage(bgImage, 0, 0, GAME_WIDTH, GAME_HEIGHT);
         ctx.restore();
-        return;
     }
 
-    // Partículas
-    particles.forEach(p => {
-        ctx.globalAlpha = p.life;
-        ctx.fillStyle = p.color;
-        ctx.fillRect(p.x, p.y, 3, 3);
-    });
-    ctx.globalAlpha = 1;
+    if (!gameActive && gameSpeed === 1.0) return;
 
-    // Efeito de Tela Crítica (Vignette Vermelha Pulsante)
+    // 2. DESENHA HUD E ALERTAS (Sempre fixos na tela)
+    drawHUD(player1, 20, 40, 'left');
+    drawHUD(player2, GAME_WIDTH - 20, 40, 'right');
+
+    if (player1.balas === 0 || player2.balas === 0) {
+        ctx.save();
+        ctx.fillStyle = '#ff4444';
+        ctx.font = 'bold 20px Orbitron';
+        ctx.textAlign = 'center';
+        if (Date.now() % 1000 < 500) {
+            ctx.fillText('BUSQUE MUNIÇÃO NO CHÃO!', GAME_WIDTH / 2, 40);
+        }
+        ctx.restore();
+    }
+
+    // Efeito de Tela Crítica (Vignette) - Fixo
     if (player1.vida <= 1 || player2.vida <= 1) {
         ctx.save();
         const pulse = Math.sin(Date.now() / 150) * 0.25 + 0.25;
@@ -592,126 +983,257 @@ function draw() {
         ctx.restore();
     }
 
-    // Desenha HUD P1
-    drawHUD(player1, 20, 40, 'left');
+    // 3. --- ELEMENTOS DO MUNDO (AFETADOS PELO ZOOM) ---
+    ctx.save();
+    
+    if (camera.active) {
+        // Se estiver rastreando uma bala, a câmera segue a posição X/Y dela dinamicamente
+        const trackX = camera.targetBullet ? camera.targetBullet.x : camera.x;
+        const trackY = camera.targetBullet ? camera.targetBullet.y : camera.y;
 
-    // Desenha HUD P2
-    drawHUD(player2, GAME_WIDTH - 20, 40, 'right');
-
-    // Alerta de Recarregue
-    if (player1.balas === 0 || player2.balas === 0) {
-        ctx.fillStyle = '#ff4444';
-        ctx.font = 'bold 20px Orbitron';
-        ctx.textAlign = 'center';
-        if (Date.now() % 1000 < 500) {
-            ctx.fillText('BUSQUE MUNIÇÃO NO CHÃO!', GAME_WIDTH / 2, 40);
-        }
+        ctx.translate(GAME_WIDTH / 2, GAME_HEIGHT / 2);
+        ctx.scale(camera.scale, camera.scale);
+        ctx.translate(-trackX, -trackY);
     }
 
-    // Desenha Jogadores (Minimalistas Neon)
-    drawPlayer(player1);
-    drawPlayer(player2);
+    // Aplica Screen Shake (Afeta o mundo)
+    if (screenShake > 1) {
+        ctx.translate((Math.random() - 0.5) * screenShake, (Math.random() - 0.5) * screenShake);
+    }
 
-    // Desenha Divisória
+    // Divisória do Campo
+    ctx.save();
     ctx.setLineDash([10, 10]);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.beginPath();
     ctx.moveTo(GAME_WIDTH / 2, 60);
     ctx.lineTo(GAME_WIDTH / 2, GAME_HEIGHT - 20);
     ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.restore();
 
-    // Desenha Balas e Rastros
-    bullets.forEach(bullet => {
-        // Trail com a cor da bala
-        bullet.trail.forEach((t, i) => {
-            ctx.fillStyle = bullet.color;
-            ctx.globalAlpha = i / 20; // Rastro suave
-            ctx.font = 'bold 12px Orbitron';
-            ctx.fillText('67', t.x, t.y);
-        });
-        ctx.globalAlpha = 1;
-
+    // Partículas
+    particles.forEach(p => {
         ctx.save();
-        ctx.fillStyle = bullet.color; // Cor neon única do jogador
-        ctx.font = 'bold 18px Orbitron';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        // Glow impactante na cor da bala
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = bullet.color;
-
-        ctx.fillText('67', bullet.x, bullet.y);
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 3, 3);
         ctx.restore();
     });
 
-    // Desenha Obstáculos
+    // Destroços Neon (Debris)
+    debris.forEach(d => {
+        ctx.save();
+        ctx.translate(d.x, d.y);
+        ctx.rotate(d.angle);
+        ctx.globalAlpha = d.life;
+        ctx.fillStyle = d.color;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = d.color;
+        
+        // Desenha pedaços triangulares/quadrados
+        ctx.beginPath();
+        ctx.moveTo(-d.size/2, -d.size/2);
+        ctx.lineTo(d.size/2, -d.size/2);
+        ctx.lineTo(0, d.size/2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    });
+
+    // Obstáculos
     obstacles.forEach(ob => {
         ctx.save();
         ctx.fillStyle = ob.hp === 2 ? '#333' : '#111';
-        ctx.strokeStyle = ob.hp === 2 ? '#666' : '#f00'; // Vermelho se estiver quebrando
+        ctx.strokeStyle = ob.hp === 2 ? '#666' : '#f00';
         ctx.lineWidth = 2;
         ctx.fillRect(ob.x, ob.y, ob.w, ob.h);
         ctx.strokeRect(ob.x, ob.y, ob.w, ob.h);
-
-        // Detalhes internos (cyber)
-        ctx.globalAlpha = 0.3;
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(ob.x + 5, ob.y + 5, ob.w - 10, 2);
         ctx.restore();
     });
 
-    // Desenha Caixa de Munição
+    // Itens (Munição e Escudo)
     ammoBoxes.forEach(box => {
         ctx.save();
-        // Glow da munição
         ctx.shadowBlur = 20;
         ctx.shadowColor = COLORS.ammo;
-
         ctx.fillStyle = COLORS.ammo;
         ctx.font = 'bold 24px Orbitron';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-
-        // Desenha o 67 como o item de munição
         ctx.fillText('67', box.x, box.y);
-
-        // Pequeno indicador flutuante
-        ctx.font = '10px Inter';
-        ctx.fillStyle = '#fff';
-        ctx.fillText('RECARGA', box.x, box.y + 20);
         ctx.restore();
     });
+
+    if (shieldBox && shieldBox.active) {
+        ctx.save();
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#fff';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(shieldBox.x, shieldBox.y, 15, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // Balas
+    bullets.forEach(bullet => {
+        // Remove rastro durante o Bullet Time para evitar efeito de "duplicação"
+        if (!camera.active) {
+            bullet.trail.forEach((t, i) => {
+                ctx.save();
+                ctx.fillStyle = bullet.color;
+                ctx.globalAlpha = i / 20; 
+                ctx.font = `bold ${bullet.isCharged ? 24 : 12}px Orbitron`;
+                ctx.fillText('67', t.x, t.y);
+                ctx.restore();
+            });
+        }
+
+        ctx.save();
+        ctx.fillStyle = bullet.color; 
+        ctx.font = `bold ${bullet.isCharged ? 32 : 18}px Orbitron`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowBlur = bullet.isCharged ? 30 : 15;
+        ctx.shadowColor = bullet.color;
+        ctx.fillText('67', bullet.x, bullet.y);
+        ctx.restore();
+    });
+
+    // Jogadores
+    drawPlayer(player1);
+    drawPlayer(player2);
+
+    ctx.restore(); // Finaliza contexto de Zoom do Mundo
+}
+
+/**
+ * Desenha uma mão estilizada (Finger 67)
+ */
+function drawHand(ctx, color, width, height, state) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    // Glow Principal
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = color;
+
+    if (state === 'pointing') {
+        // --- PALMA DA MÃO ---
+        ctx.beginPath();
+        ctx.moveTo(-18, -12);
+        ctx.quadraticCurveTo(-25, 0, -18, 12); 
+        ctx.quadraticCurveTo(-10, 18, 8, 14);   
+        ctx.lineTo(8, -10);                   
+        ctx.quadraticCurveTo(-10, -18, -18, -12); 
+        ctx.stroke();
+
+        // --- DEDO INDICADOR ---
+        ctx.beginPath();
+        ctx.moveTo(8, -8);
+        ctx.quadraticCurveTo(15, -10, 25, -8); 
+        ctx.quadraticCurveTo(28, -7, 25, -6);  
+        ctx.lineTo(8, -5);
+        ctx.stroke();
+
+        // --- DEDOS DOBRADOS ---
+        ctx.beginPath();
+        ctx.moveTo(8, -2); ctx.quadraticCurveTo(18, -2, 18, 1); ctx.quadraticCurveTo(18, 4, 8, 2); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(8, 4); ctx.quadraticCurveTo(16, 6, 16, 9); ctx.quadraticCurveTo(16, 12, 8, 10); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(8, 10); ctx.quadraticCurveTo(14, 12, 14, 15); ctx.quadraticCurveTo(14, 18, 8, 16); ctx.stroke();
+
+        // --- POLEGAR ---
+        ctx.beginPath();
+        ctx.moveTo(-12, -14);
+        ctx.quadraticCurveTo(-18, -22, -10, -28); 
+        ctx.quadraticCurveTo(-6, -30, -4, -24);   
+        ctx.lineTo(-2, -14);
+        ctx.stroke();
+    } else if (state === 'fist') {
+        // --- PUNHO FECHADO (Para o DASH) ---
+        ctx.beginPath();
+        ctx.moveTo(-15, -15);
+        ctx.quadraticCurveTo(-22, 0, -15, 15);
+        ctx.quadraticCurveTo(0, 20, 12, 12);
+        ctx.lineTo(12, -12);
+        ctx.quadraticCurveTo(0, -20, -15, -15);
+        ctx.stroke();
+
+        // Detalhes dos dedos fechados no punho
+        for(let i = -8; i <= 8; i += 5) {
+            ctx.beginPath();
+            ctx.moveTo(5, i);
+            ctx.lineTo(12, i);
+            ctx.stroke();
+        }
+    }
+
+    // Preenchimento interno neon suave
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = color;
+    ctx.fill();
 
     ctx.restore();
 }
 
 /**
- * Desenha o Jogador como um retângulo neon
+ * Desenha o Jogador como o Avatar de mão "Finger 67"
  */
 function drawPlayer(p) {
+    if (p.destroyed) return; // Se destruído, não desenha nada
     ctx.save();
+    
+    // Posicionamento com RECUO (Recoil)
+    ctx.translate(p.x + p.width / 2 + p.recoilOffset.x, p.y + p.height / 2);
+    
+    // Rotaciona a mão para onde está apontando
+    ctx.rotate(p.angle);
+
     ctx.shadowBlur = 15;
     ctx.shadowColor = p.color;
-    ctx.fillStyle = p.color;
-    if (p.vida <= 1) {
-        if (Math.sin(Date.now() / 100) > 0) {
-            ctx.shadowColor = '#ff0000';
-            ctx.fillStyle = '#ff0000';
-        }
+    
+    // Efeito de Carregamento (Glow pulsante se chargeTime > 0)
+    if (p.chargeTime > 0) {
+        const pulse = Math.sin(Date.now() / 50) * 10 + 20;
+        ctx.shadowBlur = pulse;
+        ctx.shadowColor = '#fff';
+        
+        // Indicador circular de progresso
+        ctx.beginPath();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.arc(0, 0, p.width * 1.2, -Math.PI/2, -Math.PI/2 + (Math.min(p.chargeTime, 800) / 800) * Math.PI * 2);
+        ctx.stroke();
     }
 
-    // Efeito de "ghosting" se dash estiver carregando
-    if (!p.dashReady) ctx.globalAlpha = 0.6;
-    ctx.fillRect(p.x, p.y, p.width, p.height);
-
-    // Indica direção (Olho/Frente)
-    ctx.fillStyle = '#000';
-    if (p.dir === 1) ctx.fillRect(p.x + p.width - 5, p.y + 10, 5, 20);
-    else ctx.fillRect(p.x, p.y + 10, 5, 20);
+    if (p.vida <= 1 && Math.sin(Date.now() / 100) > 0) {
+        ctx.shadowColor = '#ff0000';
+        drawHand(ctx, '#ff0000', p.width, p.height, p.handState);
+    } else {
+        if (p.invulnerable || !p.dashReady) ctx.globalAlpha = 0.5;
+        drawHand(ctx, p.color, p.width, p.height, p.handState);
+    }
 
     ctx.restore();
+
+    // Desenha Escudo Ativo 
+    if (p.shield) {
+        ctx.save();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#fff';
+        ctx.beginPath();
+        ctx.arc(p.x + p.width/2, p.y + p.height/2, p.width * 0.8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
 }
 
 /**
@@ -745,7 +1267,7 @@ function drawHUD(player, x, y, align) {
     ctx.textAlign = align;
     ctx.globalAlpha = glitchAlpha;
 
-    const label = player.id === 1 ? 'RAFAEL' : 'ROSSETTI';
+    const label = player.id === 1 ? 'RAFAEL' : (isSoloMode ? 'ROSSETTI [BOT]' : 'ROSSETTI');
     const heartIcon = '❤️';
     const ammoIcon = '⚡';
 
@@ -787,16 +1309,16 @@ function drawHUD(player, x, y, align) {
 }
 
 /**
- * Loop do Jogo
+ * Loop do Jogo com suporte a Slow Motion
  */
-function gameLoop() {
-    update();
+let lastTime = 0;
+function gameLoop(timestamp) {
+    if (!lastTime) lastTime = timestamp;
+    lastTime = timestamp;
+
+    update(gameSpeed);
     draw();
-    if (gameActive) requestAnimationFrame(gameLoop);
+    if (gameActive || gameSpeed < 1.0) requestAnimationFrame(gameLoop);
 }
 
-// Inicializa estado visual
-ctx.fillStyle = 'white';
-ctx.font = '20px Orbitron';
-ctx.textAlign = 'center';
-ctx.fillText('READY TO DUEL?', GAME_WIDTH / 2, GAME_HEIGHT / 2);
+// Inicializa estado visual (vazio até o jogo começar)
