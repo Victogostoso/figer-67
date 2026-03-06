@@ -27,10 +27,36 @@ body {
     position: relative;
     width: 60rem;
     height: 37.5rem;
-    background-color: #000; /* Fundo preto sÃ³lido antes do canvas carregar */
+    background-color: #000;
     border: 4px solid #1a1a1e;
     box-shadow: 0 0 50px rgba(0, 0, 0, 0.7);
     overflow: hidden;
+}
+
+/* --- CAMADA FILTRO CRT --- */
+#game-container::after {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0; left: 0; bottom: 0; right: 0;
+    /* Scanlines fixas horizontais e verticais */
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.15) 50%), 
+                linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+    z-index: 5; /* AtrÃ¡s do overlay mas na frente do canvas */
+    background-size: 100% 4px, 3px 100%;
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+#game-container::before {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0; left: 0; bottom: 0; right: 0;
+    /* Vinheta radial para foco central */
+    background: radial-gradient(circle, transparent 65%, rgba(0,0,0,0.5) 100%);
+    z-index: 6;
+    pointer-events: none;
 }
 
 #gameCanvas {
@@ -356,3 +382,22 @@ body {
     color: #ff4444 !important;
     animation: blink 0.5s infinite;
 }
+/* Adicionando animação de scanline móvel */
+.crt-scan {
+    width: 100%;
+    height: 100px;
+    z-index: 7;
+    background: linear-gradient(0deg, rgba(0, 0, 0, 0) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(0, 0, 0, 0) 100%);
+    opacity: 0.2;
+    position: absolute;
+    top: -100px;
+    animation: moveScanline 12s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes moveScanline {
+    0% { top: -100px; }
+    100% { top: 100%; }
+}
+
+#diff-impossible.selected { border-color: #ff0055 !important; color: #ff0055 !important; box-shadow: 0 0 20px rgba(255, 0, 85, 0.4); text-shadow: 0 0 10px #ff0055; }

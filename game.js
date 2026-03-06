@@ -23,7 +23,7 @@ canvas.height = GAME_HEIGHT;
 const PLAYER_SIZE = 40;
 const BULLET_RADIUS = 5;
 const PLAYER_SPEED = 4;
-const BULLET_SPEED = 10;
+const BULLET_SPEED = 8;
 const INITIAL_LIVES = 5;
 const MAX_AMMO = 5;
 const DASH_DISTANCE = 100;
@@ -56,6 +56,7 @@ let uiEffects = []; // Novo: para textos flutuantes (feedback de dano)
 let dashGhosts = []; // Novo: para o efeito de "eco" no dash
 let botDifficulty = 'medium'; // Novo: easy, medium, hard
 let introTimer = 0; // Novo: para contagem regressiva 3, 2, 1
+let slowMoTimeout = null; // Novo: para controlar o limite de 3s
 
 // Camadas de estrelas para o Parallax (profundidade)
 let starLayers = [
@@ -346,12 +347,20 @@ function resetPlayers() {
     };
 
     particles = [];
-    uiEffects = []; // Reseta efeitos de UI
-    dashGhosts = []; // Reseta ecos
-    initStars(); // Regenera as estrelas
+    uiEffects = []; 
+    dashGhosts = []; 
+    ammoBoxes = []; 
+    initStars(); 
     spawnAmmo(); 
     spawnObstacles();
-    spawnShield(); // Novo: Chance de escudo
+    spawnShield(); 
+
+    // Garante que o tempo e a câmera voltem ao normal no início de cada round
+    gameSpeed = 1.0;
+    camera.active = false;
+    camera.targetBullet = null;
+    camera.scale = 1.0;
+    if (slowMoTimeout) clearTimeout(slowMoTimeout);
 }
 
 /**
@@ -403,16 +412,28 @@ function spawnObstacles() {
     }
 }
 
-/**
- * Gera uma caixa de munição no centro
- */
 function spawnAmmo() {
-    const margin = 150;
-    ammoBoxes = [{
-        x: margin + Math.random() * (GAME_WIDTH - 2 * margin),
-        y: margin + Math.random() * (GAME_HEIGHT - 2 * margin),
-        size: 24
-    }];
+    const margin = 100;
+    
+    // Verifica se precisa de munição no LADO ESQUERDO (Rafael)
+    const hasLeft = ammoBoxes.some(b => b.x < GAME_WIDTH / 2);
+    if (!hasLeft) {
+        ammoBoxes.push({
+            x: margin + Math.random() * (GAME_WIDTH / 2 - 2 * margin),
+            y: margin + Math.random() * (GAME_HEIGHT - 2 * margin),
+            size: 24
+        });
+    }
+
+    // Verifica se precisa de munição no LADO DIREITO (Rossetti)
+    const hasRight = ammoBoxes.some(b => b.x > GAME_WIDTH / 2);
+    if (!hasRight) {
+        ammoBoxes.push({
+            x: GAME_WIDTH / 2 + margin + Math.random() * (GAME_WIDTH / 2 - 2 * margin),
+            y: margin + Math.random() * (GAME_HEIGHT - 2 * margin),
+            size: 24
+        });
+    }
 }
 
 /**
@@ -482,16 +503,20 @@ function startGame() {
  * Finaliza o Jogo
  */
 function endGame(winner) {
+    if (!gameActive) return; // Evita múltiplas chamadas se houver várias balas
+    gameActive = false; // Bloqueia inputs imediatamente
     AudioEngine.bgm.stop();
     AudioEngine.playVictory(); 
     
     if (obstacleTimer) clearInterval(obstacleTimer);
     
-    // ATIVA O SLOW MOTION FINAL (SOLICITADO 2%)
-    gameSpeed = 0.02; 
-    
-    // Zoom mais equilibrado no momento da desintegração
-    camera.scale = 4.0; // Reduzido de 8.0
+    // Reseta câmera e mantêm o foco na arena inteira
+    gameSpeed = 1.0; 
+    camera.active = false;
+    camera.targetBullet = null;
+    camera.scale = 1.0;
+    camera.x = GAME_WIDTH / 2;
+    camera.y = GAME_HEIGHT / 2;
 
     // Explosão massiva de destroços no perdedor
     const target = (winner === 1) ? player2 : player1;
@@ -503,7 +528,6 @@ function endGame(winner) {
         camera.active = false;
         camera.targetBullet = null;
         camera.scale = 1.0;
-        gameActive = false;
         debris = []; // Limpa destroços para o próximo round
         overlay.classList.remove('hidden');
         gameOverScreen.classList.remove('hidden');
@@ -557,7 +581,8 @@ Object.keys(arenaBtns).forEach(key => {
 const diffBtns = {
     easy: document.getElementById('diff-easy'),
     medium: document.getElementById('diff-medium'),
-    hard: document.getElementById('diff-hard')
+    hard: document.getElementById('diff-hard'),
+    impossible: document.getElementById('diff-impossible')
 };
 
 Object.keys(diffBtns).forEach(key => {
@@ -572,6 +597,9 @@ Object.keys(diffBtns).forEach(key => {
  * Lógica do TIRO
  */
 function shoot(player, isCharged = false) {
+    // Bloqueia tiro se o jogo não estiver ativo ou em slow motion cinematográfico
+    if (!gameActive || camera.active) return;
+
     if (player.balas > 0 && player.shootReady) {
         // Conversão automática: se não tem munição para carregado, solta normal
         if (isCharged && player.balas < 2) isCharged = false;
@@ -635,12 +663,14 @@ function update(speed) {
         if (eff.life <= 0) uiEffects.splice(idx, 1);
     });
 
+    // Suavização da Câmera (Intro ou Retorno do Bullet Time)
+    if (!camera.active && camera.scale !== 1.0) {
+        camera.scale += (1.0 - camera.scale) * 0.1 * speed; // Retorno mais rápido e fluido
+        if (Math.abs(camera.scale - 1.0) < 0.01) camera.scale = 1.0;
+    }
+
     // Bloqueia movimento se a intro estiver acontecendo
     if (introTimer > 0 || uiEffects.some(e => e.isIntro && e.text === 'EXECUTE!')) {
-        // Suavização da Câmera (Intro)
-        if (!camera.active && camera.scale !== 1.0) {
-            camera.scale += (1.0 - camera.scale) * 0.02 * speed;
-        }
         return;
     }
 
@@ -785,6 +815,7 @@ function update(speed) {
         let decisionThreshold = 800; // Médio
         if (botDifficulty === 'easy') decisionThreshold = 1400;
         if (botDifficulty === 'hard') decisionThreshold = 400;
+        if (botDifficulty === 'impossible') decisionThreshold = 100; // Reação quase instantânea
 
         botLastDecision += 16.6 * speed; 
         if (botLastDecision > decisionThreshold || (lowAmmo && ammoBoxes.length > 0)) {
@@ -799,13 +830,13 @@ function update(speed) {
             } else if (lowAmmo && !ammoInMySide) {
                 // MUNIÇÃO NO LADO DO P1 E EU ESTOU VAZIO
                 botAITarget.y = Math.random() * GAME_HEIGHT;
-                botAITarget.x = GAME_WIDTH - (botDifficulty === 'hard' ? 50 : 100);
+                botAITarget.x = GAME_WIDTH - (botDifficulty === 'impossible' ? 30 : (botDifficulty === 'hard' ? 50 : 100));
             } else {
                 // Decide se ataca ou patrulha
-                const attackAggression = botDifficulty === 'hard' ? 0.1 : (botDifficulty === 'medium' ? 0.3 : 0.6);
+                const attackAggression = botDifficulty === 'impossible' ? 0.05 : (botDifficulty === 'hard' ? 0.1 : (botDifficulty === 'medium' ? 0.3 : 0.6));
                 if (Math.random() > attackAggression) {
-                    botAITarget.y = player1.y + (Math.random() - 0.5) * (botDifficulty === 'hard' ? 50 : 150);
-                    botAITarget.x = GAME_WIDTH - 150 - Math.random() * 200;
+                    botAITarget.y = player1.y + (Math.random() - 0.5) * (botDifficulty === 'impossible' ? 20 : (botDifficulty === 'hard' ? 50 : 150));
+                    botAITarget.x = GAME_WIDTH - (botDifficulty === 'impossible' ? 100 : 150) - Math.random() * 200;
                 } else {
                     botAITarget.y = 50 + Math.random() * (GAME_HEIGHT - 100);
                     botAITarget.x = GAME_WIDTH / 2 + 100 + Math.random() * (GAME_WIDTH / 2 - 200);
@@ -855,8 +886,8 @@ function update(speed) {
         player2.y = Math.max(0, Math.min(GAME_HEIGHT - player2.height, player2.y));
 
         // Atira se estiver alinhado verticalmente com o jogador
-        const alignedThreshold = botDifficulty === 'hard' ? 70 : (botDifficulty === 'medium' ? 50 : 30);
-        const shootChance = botDifficulty === 'hard' ? 0.05 : (botDifficulty === 'medium' ? 0.03 : 0.015);
+        const alignedThreshold = botDifficulty === 'impossible' ? 90 : (botDifficulty === 'hard' ? 70 : 50);
+        const shootChance = botDifficulty === 'impossible' ? 0.12 : (botDifficulty === 'hard' ? 0.05 : 0.03);
         const aligned = Math.abs(player2.y - player1.y) < alignedThreshold;
         
         if (aligned && player2.balas > 0 && Math.random() < shootChance) {
@@ -874,7 +905,7 @@ function update(speed) {
         }
 
         // Tenta desviar de balas com Dash reativo
-        const dashDetectionDist = botDifficulty === 'hard' ? 0.4 : (botDifficulty === 'medium' ? 0.7 : 0.85); 
+        const dashDetectionDist = botDifficulty === 'impossible' ? 0.2 : (botDifficulty === 'hard' ? 0.4 : (botDifficulty === 'medium' ? 0.7 : 0.85)); 
         bullets.forEach(b => {
             if (b.owner === 1 && Math.abs(b.y - player2.y) < 60 && b.x > GAME_WIDTH * dashDetectionDist) {
                 if (player2.dashReady) {
@@ -969,10 +1000,12 @@ function update(speed) {
                 AudioEngine.playHit();
                 createExplosion(bullet.x, bullet.y, '#555'); 
                 
-                // Cancela Bullet Time se bater num obstáculo
+                // Cancela Bullet Time se bater num obstáculo e memoriza local
                 if (camera.targetBullet === bullet) {
                     gameSpeed = 1.0;
                     camera.active = false;
+                    camera.x = bullet.x;
+                    camera.y = bullet.y;
                     camera.targetBullet = null;
                 }
 
@@ -995,13 +1028,13 @@ function update(speed) {
         const inDangerZone = (bullet.owner === 1 && bullet.x > GAME_WIDTH * 0.8) || 
                              (bullet.owner === 2 && bullet.x < GAME_WIDTH * 0.2);
 
-        if (potentialVictim.vida <= 1 && !potentialVictim.shield && inDangerZone && !camera.active) {
+        if (gameActive && potentialVictim.vida <= 1 && !potentialVictim.shield && inDangerZone && !camera.active) {
             // Verifica se a bala está realmente na direção vertical do player
             const verticalDist = Math.abs(bullet.y - (potentialVictim.y + potentialVictim.height/2));
             if (verticalDist < 120) {
                 // --- NOVA LÓGICA DE DINÂMICA DO SLOW MOTION ---
                 const isMasterShot = bullet.bounces > 0 || bullet.isCharged;
-                const bulletTimeChance = isMasterShot ? 1.0 : 0.7; // Tiros especiais sempre dão slow, normais 70%
+                const bulletTimeChance = isMasterShot ? 1.0 : 0.5; // Reduzido de 70% para 50%
                 
                 if (Math.random() < bulletTimeChance) {
                     camera.active = true;
@@ -1023,8 +1056,8 @@ function update(speed) {
                         });
                     }
 
-                    // Limite de segurança: 3 segundos no máximo para a animação
-                    setTimeout(() => {
+                    if (slowMoTimeout) clearTimeout(slowMoTimeout);
+                    slowMoTimeout = setTimeout(() => {
                         if (camera.active && gameActive) {
                             gameSpeed = 1.0;
                             camera.active = false;
@@ -1044,6 +1077,8 @@ function update(speed) {
             if (passed) {
                 gameSpeed = 1.0;
                 camera.active = false;
+                camera.x = bullet.x;
+                camera.y = bullet.y;
                 camera.targetBullet = null;
             }
         }
@@ -1064,6 +1099,16 @@ function update(speed) {
                 victim.shield = false;
                 createExplosion(bullet.x, bullet.y, '#fff');
                 AudioEngine.playHit();
+                
+                // Reset de camera se acertar o escudo no slow mo
+                if (camera.targetBullet === bullet) {
+                    gameSpeed = 1.0;
+                    camera.active = false;
+                    camera.x = bullet.x;
+                    camera.y = bullet.y;
+                    camera.targetBullet = null;
+                }
+
                 bullets.splice(index, 1);
                 return;
             }
@@ -1091,6 +1136,16 @@ function update(speed) {
             });
 
             lastHitTime[`p${victim.id}`] = Date.now(); // Marca tempo do hit para o HUD
+            
+            // NOVO: Reset de câmera obrigatório ao atingir o jogador (evita bug de slow infinito)
+            if (camera.targetBullet === bullet) {
+                gameSpeed = 1.0;
+                camera.active = false;
+                camera.x = bullet.x;
+                camera.y = bullet.y;
+                camera.targetBullet = null;
+            }
+
             bullets.splice(index, 1); // Garante que a bala sumiu
 
             if (victim.vida <= 0) {
@@ -1228,9 +1283,9 @@ function draw() {
     ctx.save();
     
     if (camera.active || camera.scale !== 1.0) {
-        // Se estiver rastreando uma bala ou em animação (intro/fim), foca no alvo
-        const trackX = camera.active && camera.targetBullet ? camera.targetBullet.x : (camera.active ? camera.x : GAME_WIDTH / 2);
-        const trackY = camera.active && camera.targetBullet ? camera.targetBullet.y : (camera.active ? camera.y : GAME_HEIGHT / 2);
+        // Se estiver rastreando uma bala, usa ela. Senão (retorno de zoom), usa a última posição (camera.x)
+        const trackX = (camera.active && camera.targetBullet) ? camera.targetBullet.x : camera.x;
+        const trackY = (camera.active && camera.targetBullet) ? camera.targetBullet.y : camera.y;
 
         ctx.translate(GAME_WIDTH / 2, GAME_HEIGHT / 2);
         ctx.scale(camera.scale, camera.scale);
@@ -1616,7 +1671,10 @@ function gameLoop(timestamp) {
 
     update(gameSpeed);
     draw();
-    if (gameActive || gameSpeed < 1.0) requestAnimationFrame(gameLoop);
+    // Continua o loop enquanto o jogo estiver ativo ou houver efeitos visuais (limite 3s do timer tbm ajuda)
+    if (gameActive || debris.length > 0 || gameSpeed < 1.0) requestAnimationFrame(gameLoop);
 }
 
 // Inicializa estado visual (vazio até o jogo começar)
+
+console.log(loaded);
