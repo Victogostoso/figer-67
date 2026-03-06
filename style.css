@@ -170,6 +170,37 @@ body {
     background: rgba(0, 247, 255, 0.05);
 }
 
+#difficulty-selection {
+    margin-bottom: 1rem;
+}
+
+.diff-btns {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+.diff-btn {
+    padding: 0.5rem 1rem;
+    font-family: var(--font-gaming);
+    font-size: 0.75rem;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #666;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-radius: 2px;
+}
+
+.diff-btn:hover {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+#diff-easy.selected { border-color: #00ff00; color: #00ff00; box-shadow: 0 0 10px rgba(0, 255, 0, 0.2); }
+#diff-medium.selected { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 10px rgba(255, 174, 0, 0.2); }
+#diff-hard.selected { border-color: #ff0000; color: #ff0000; box-shadow: 0 0 10px rgba(255, 0, 0, 0.2); }
+
 #start-btn,
 #restart-btn {
     padding: 1rem 3rem; /* Reduzido de 1.2 e 3.5 */

@@ -52,6 +52,17 @@ let botLastDecision = 0; // Para IA decidir novos pontos
 let botAITarget = { x: 0, y: 0 };
 let currentArena = 'classic'; // Novo: tipo de arena ativa
 let lastHitTime = { p1: 0, p2: 0 }; // Novo: para tremor do HUD
+let uiEffects = []; // Novo: para textos flutuantes (feedback de dano)
+let dashGhosts = []; // Novo: para o efeito de "eco" no dash
+let botDifficulty = 'medium'; // Novo: easy, medium, hard
+let introTimer = 0; // Novo: para contagem regressiva 3, 2, 1
+
+// Camadas de estrelas para o Parallax (profundidade)
+let starLayers = [
+    { stars: [], speed: 0.1, size: 0.8, alpha: 0.2 }, // Longe (lenta)
+    { stars: [], speed: 0.25, size: 1.2, alpha: 0.4 }, // Média
+    { stars: [], speed: 0.6, size: 2.0, alpha: 0.7 }   // Perto (rápida)
+];
 
 // Cores Neon
 const COLORS = {
@@ -74,6 +85,39 @@ function createExplosion(x, y, color) {
             vy: (Math.random() - 0.5) * 10,
             life: 1.0,
             color: color
+        });
+    }
+}
+
+/**
+ * Inicializa as estrelas do Parallax
+ */
+function initStars() {
+    starLayers.forEach(layer => {
+        layer.stars = [];
+        const count = 50; // 50 estrelas por camada
+        for (let i = 0; i < count; i++) {
+            layer.stars.push({
+                x: Math.random() * GAME_WIDTH,
+                y: Math.random() * GAME_HEIGHT
+            });
+        }
+    });
+}
+
+/**
+ * Cria ecos (fantasmas) para o rastro do dash
+ */
+function createDashGhosts(p) {
+    for (let i = 1; i <= 3; i++) {
+        dashGhosts.push({
+            x: p.x,
+            y: p.y,
+            angle: p.angle,
+            color: p.color,
+            handState: p.handState,
+            life: 0.8 - (i * 0.2), // Cada fantasma nasce mais fraco
+            delay: i * 50 // Tempo para começar a sumir
         });
     }
 }
@@ -275,7 +319,8 @@ function resetPlayers() {
         chargeTime: 0, 
         recoilOffset: { x: 0, y: 0 }, 
         handState: 'pointing',
-        destroyed: false // Novo: para sumir na explosão
+        destroyed: false,
+        damageFlash: 0 // Novo: timer para flash de dano
     };
 
     player2 = {
@@ -296,10 +341,14 @@ function resetPlayers() {
         chargeTime: 0,
         recoilOffset: { x: 0, y: 0 },
         handState: 'pointing',
-        destroyed: false
+        destroyed: false,
+        damageFlash: 0
     };
 
     particles = [];
+    uiEffects = []; // Reseta efeitos de UI
+    dashGhosts = []; // Reseta ecos
+    initStars(); // Regenera as estrelas
     spawnAmmo(); 
     spawnObstacles();
     spawnShield(); // Novo: Chance de escudo
@@ -375,7 +424,48 @@ function startGame() {
     resetPlayers();
     player1.vida = INITIAL_LIVES;
     player2.vida = INITIAL_LIVES;
+    
+    // Configura INTRO CINEMATOGRÁFICA
     gameActive = true;
+    camera.active = false;
+    camera.scale = 0.4; // Começa de longe (zoom de fora)
+    camera.x = GAME_WIDTH / 2;
+    camera.y = GAME_HEIGHT / 2;
+    introTimer = 3; // Inicia em 3 segundos
+
+    // Lógica de contagem regressiva por UI Effects
+    const createCountdown = (num) => {
+        uiEffects.push({
+            x: GAME_WIDTH / 2,
+            y: GAME_HEIGHT / 2 - 50,
+            vy: 0,
+            life: 1.0,
+            text: num.toString(),
+            color: COLORS.p1,
+            isIntro: true
+        });
+    };
+
+    createCountdown(3);
+    
+    // Agendador da contagem
+    setTimeout(() => { if(gameActive) createCountdown(2); introTimer = 2; }, 1000);
+    setTimeout(() => { if(gameActive) createCountdown(1); introTimer = 1; }, 2000);
+    setTimeout(() => { 
+        if(gameActive) {
+            uiEffects.push({
+                x: GAME_WIDTH / 2,
+                y: GAME_HEIGHT / 2 - 50,
+                vy: 0,
+                life: 1.0,
+                text: 'EXECUTE!',
+                color: '#fff',
+                isIntro: true
+            });
+            introTimer = 0;
+        }
+    }, 3000);
+
     overlay.classList.add('hidden');
     gameOverScreen.classList.add('hidden');
     if (controlsHint) controlsHint.classList.add('hidden');
@@ -437,12 +527,14 @@ soloBtn.addEventListener('click', () => {
     isSoloMode = true;
     soloBtn.classList.add('selected');
     duoBtn.classList.remove('selected');
+    document.getElementById('difficulty-selection').classList.remove('hidden');
 });
 
 duoBtn.addEventListener('click', () => {
     isSoloMode = false;
     duoBtn.classList.add('selected');
     soloBtn.classList.remove('selected');
+    document.getElementById('difficulty-selection').classList.add('hidden');
 });
 
 // Arena Selection Listeners
@@ -458,6 +550,21 @@ Object.keys(arenaBtns).forEach(key => {
         // Atualiza UI
         Object.values(arenaBtns).forEach(btn => btn.classList.remove('selected'));
         arenaBtns[key].classList.add('selected');
+    });
+});
+
+// Difficulty Selection Listeners
+const diffBtns = {
+    easy: document.getElementById('diff-easy'),
+    medium: document.getElementById('diff-medium'),
+    hard: document.getElementById('diff-hard')
+};
+
+Object.keys(diffBtns).forEach(key => {
+    diffBtns[key].addEventListener('click', () => {
+        botDifficulty = key;
+        Object.values(diffBtns).forEach(btn => btn.classList.remove('selected'));
+        diffBtns[key].classList.add('selected');
     });
 });
 
@@ -518,10 +625,24 @@ function shoot(player, isCharged = false) {
  * Atualização do Estado
  */
 function update(speed) {
-    if (!gameActive && speed === 1.0) return;
-
     const moveStep = PLAYER_SPEED * speed;
     const bulletStep = speed; // Multiplicador para o movimento das balas
+
+    // ATUALIZA EFEITOS DE UI PRIMEIRO (Para a intro não travar)
+    uiEffects.forEach((eff, idx) => {
+        eff.y += eff.vy * speed;
+        eff.life -= 0.02 * speed;
+        if (eff.life <= 0) uiEffects.splice(idx, 1);
+    });
+
+    // Bloqueia movimento se a intro estiver acontecendo
+    if (introTimer > 0 || uiEffects.some(e => e.isIntro && e.text === 'EXECUTE!')) {
+        // Suavização da Câmera (Intro)
+        if (!camera.active && camera.scale !== 1.0) {
+            camera.scale += (1.0 - camera.scale) * 0.02 * speed;
+        }
+        return;
+    }
 
     // Movimento e Dash Player 1
     if (keys['KeyW'] && player1.y > 0) { player1.y -= moveStep; player1.angle = -Math.PI/2; }
@@ -561,6 +682,9 @@ function update(speed) {
         // Se nenhuma tecla de direção, dash para frente padrão
         if (dx === 0 && dy === 0) dx = player1.dir;
 
+        // Cria ecos na posição inicial ANTES do pulo
+        createDashGhosts(player1);
+
         player1.x += dx * DASH_DISTANCE;
         player1.y += dy * DASH_DISTANCE;
 
@@ -570,6 +694,10 @@ function update(speed) {
 
         player1.dashReady = false;
         player1.handState = 'fist'; // Fecha o punho
+        
+        // Cria ecos também na posição final para completar o rastro
+        createDashGhosts(player1);
+
         createExplosion(player1.x + player1.width / 2, player1.y + player1.height / 2, COLORS.p1);
         setTimeout(() => {
             player1.dashReady = true;
@@ -618,6 +746,7 @@ function update(speed) {
 
         if (dx === 0 && dy === 0) dx = player2.dir;
 
+        createDashGhosts(player2);
         player2.x += dx * DASH_DISTANCE;
         player2.y += dy * DASH_DISTANCE;
 
@@ -627,6 +756,8 @@ function update(speed) {
 
         player2.dashReady = false;
         player2.handState = 'fist';
+        createDashGhosts(player2);
+        
         createExplosion(player2.x + player2.width / 2, player2.y + player2.height / 2, COLORS.p2);
         setTimeout(() => {
             player2.dashReady = true;
@@ -650,9 +781,13 @@ function update(speed) {
         const now = Date.now();
         const lowAmmo = player2.balas <= 1;
 
-        // IA Toma decisões baseada no tempo do jogo (afetado pelo slow motion)
+        // IA Toma decisões baseada no tempo do jogo (afetado pelo slow motion e dificuldade)
+        let decisionThreshold = 800; // Médio
+        if (botDifficulty === 'easy') decisionThreshold = 1400;
+        if (botDifficulty === 'hard') decisionThreshold = 400;
+
         botLastDecision += 16.6 * speed; 
-        if (botLastDecision > 800 || (lowAmmo && ammoBoxes.length > 0)) {
+        if (botLastDecision > decisionThreshold || (lowAmmo && ammoBoxes.length > 0)) {
             botLastDecision = 0;
             
             const ammoInMySide = ammoBoxes.length > 0 && ammoBoxes[0].x > GAME_WIDTH / 2;
@@ -662,21 +797,20 @@ function update(speed) {
                 botAITarget.x = ammoBoxes[0].x;
                 botAITarget.y = ammoBoxes[0].y;
             } else if (lowAmmo && !ammoInMySide) {
-                // MUNIÇÃO NO LADO DO P1 E EU ESTOU VAZIO -> MODO PANIC/EVASIVE
-                // Tenta se afastar do player e se mover rápido
+                // MUNIÇÃO NO LADO DO P1 E EU ESTOU VAZIO
                 botAITarget.y = Math.random() * GAME_HEIGHT;
-                botAITarget.x = GAME_WIDTH - 100; // Recua totalmente para a direita
+                botAITarget.x = GAME_WIDTH - (botDifficulty === 'hard' ? 50 : 100);
             } else {
                 // Decide se ataca ou patrulha
-                if (Math.random() > 0.3) {
-                    botAITarget.y = player1.y + (Math.random() - 0.5) * 150;
+                const attackAggression = botDifficulty === 'hard' ? 0.1 : (botDifficulty === 'medium' ? 0.3 : 0.6);
+                if (Math.random() > attackAggression) {
+                    botAITarget.y = player1.y + (Math.random() - 0.5) * (botDifficulty === 'hard' ? 50 : 150);
                     botAITarget.x = GAME_WIDTH - 150 - Math.random() * 200;
                 } else {
                     botAITarget.y = 50 + Math.random() * (GAME_HEIGHT - 100);
                     botAITarget.x = GAME_WIDTH / 2 + 100 + Math.random() * (GAME_WIDTH / 2 - 200);
                 }
             }
-            // Garantia de limite (permite chegar perto da linha para munição)
             botAITarget.x = Math.max(GAME_WIDTH / 2 + 5, botAITarget.x);
         }
 
@@ -721,9 +855,12 @@ function update(speed) {
         player2.y = Math.max(0, Math.min(GAME_HEIGHT - player2.height, player2.y));
 
         // Atira se estiver alinhado verticalmente com o jogador
-        const aligned = Math.abs(player2.y - player1.y) < 50;
-        if (aligned && player2.balas > 0 && Math.random() < 0.03) {
-            const useCharged = player2.balas >= 3 && Math.random() > 0.8;
+        const alignedThreshold = botDifficulty === 'hard' ? 70 : (botDifficulty === 'medium' ? 50 : 30);
+        const shootChance = botDifficulty === 'hard' ? 0.05 : (botDifficulty === 'medium' ? 0.03 : 0.015);
+        const aligned = Math.abs(player2.y - player1.y) < alignedThreshold;
+        
+        if (aligned && player2.balas > 0 && Math.random() < shootChance) {
+            const useCharged = player2.balas >= 3 && Math.random() > (botDifficulty === 'hard' ? 0.6 : 0.8);
             if (useCharged) {
                 // Bot carrega visualmente
                 player2.chargeTime = 800;
@@ -736,14 +873,16 @@ function update(speed) {
             }
         }
 
-        // Tenta desviar de balas com Dash reativo (único reflexo direto)
+        // Tenta desviar de balas com Dash reativo
+        const dashDetectionDist = botDifficulty === 'hard' ? 0.4 : (botDifficulty === 'medium' ? 0.7 : 0.85); 
         bullets.forEach(b => {
-            if (b.owner === 1 && Math.abs(b.y - player2.y) < 60 && b.x > GAME_WIDTH * 0.7) {
+            if (b.owner === 1 && Math.abs(b.y - player2.y) < 60 && b.x > GAME_WIDTH * dashDetectionDist) {
                 if (player2.dashReady) {
                     const dashDir = b.y > player2.y ? -1 : 1;
                     player2.y += dashDir * DASH_DISTANCE;
                     player2.y = Math.max(0, Math.min(GAME_HEIGHT - player2.height, player2.y));
                     
+                    createDashGhosts(player2);
                     player2.dashReady = false;
                     createExplosion(player2.x + player2.width/2, player2.y + player2.height/2, COLORS.p2);
                     setTimeout(() => player2.dashReady = true, DASH_COOLDOWN);
@@ -755,6 +894,10 @@ function update(speed) {
     // Suavização do Recuo (Cooldown visual)
     player1.recoilOffset.x *= 0.8;
     player2.recoilOffset.x *= 0.8;
+
+    // Atualiza timers de Flash de Dano
+    if (player1.damageFlash > 0) player1.damageFlash -= 16.6 * speed;
+    if (player2.damageFlash > 0) player2.damageFlash -= 16.6 * speed;
 
     // Atirar (Input normal bloqueado se estiver carregando)
     // Os botões agora são gerenciados pela lógica de carga acima para evitar tiro duplo
@@ -856,20 +999,40 @@ function update(speed) {
             // Verifica se a bala está realmente na direção vertical do player
             const verticalDist = Math.abs(bullet.y - (potentialVictim.y + potentialVictim.height/2));
             if (verticalDist < 120) {
-                camera.active = true;
-                camera.targetBullet = bullet;
-                camera.scale = 2.5; // Reduzido de 5.0 (Zoom de percurso equilibrado)
-                gameSpeed = 0.02; // Super slow motion no trajeto (2%)
+                // --- NOVA LÓGICA DE DINÂMICA DO SLOW MOTION ---
+                const isMasterShot = bullet.bounces > 0 || bullet.isCharged;
+                const bulletTimeChance = isMasterShot ? 1.0 : 0.7; // Tiros especiais sempre dão slow, normais 70%
+                
+                if (Math.random() < bulletTimeChance) {
+                    camera.active = true;
+                    camera.targetBullet = bullet;
+                    camera.scale = 2.5 + (Math.random() * 1.5); // Zoom varia entre 2.5x e 4.0x
+                    
+                    // Velocidade variável (entre 1% e 7%)
+                    gameSpeed = 0.01 + (Math.random() * 0.06);
 
-                // Limite de segurança: 3 segundos no máximo para a animação
-                setTimeout(() => {
-                    if (camera.active && gameActive) {
-                        gameSpeed = 1.0;
-                        camera.active = false;
-                        camera.targetBullet = null;
-                        camera.scale = 1.0;
+                    if (isMasterShot) {
+                        uiEffects.push({
+                            x: GAME_WIDTH / 2,
+                            y: 100,
+                            vy: -1,
+                            life: 1.5,
+                            text: 'MASTER SHOT',
+                            color: COLORS.accent,
+                            is67: true
+                        });
                     }
-                }, 3000);
+
+                    // Limite de segurança: 3 segundos no máximo para a animação
+                    setTimeout(() => {
+                        if (camera.active && gameActive) {
+                            gameSpeed = 1.0;
+                            camera.active = false;
+                            camera.targetBullet = null;
+                            camera.scale = 1.0;
+                        }
+                    }, 3000);
+                }
             }
         }
 
@@ -914,6 +1077,19 @@ function update(speed) {
             createExplosion(bullet.x, bullet.y, victim.color);
             screenShake = 15;
             victim.vida--;
+            victim.damageFlash = 200; // Pisca por 200ms
+            
+            // Texto Flutuante de Dano
+            uiEffects.push({
+                x: victim.x + victim.width/2,
+                y: victim.y,
+                vy: -2,
+                life: 1.0,
+                text: '-1 HP',
+                color: '#fff',
+                is67: true
+            });
+
             lastHitTime[`p${victim.id}`] = Date.now(); // Marca tempo do hit para o HUD
             bullets.splice(index, 1); // Garante que a bala sumiu
 
@@ -925,6 +1101,14 @@ function update(speed) {
                 setTimeout(() => victim.invulnerable = false, 1000);
             }
         }
+    });
+
+    // UI Effects Update (Movido para o topo da função update)
+
+    // Dash Ghosts Update
+    dashGhosts.forEach((g, idx) => {
+        g.life -= 0.05 * speed;
+        if (g.life <= 0) dashGhosts.splice(idx, 1);
     });
 
     // Partículas
@@ -982,13 +1166,34 @@ function update(speed) {
 function draw() {
     ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // 1. DESENHA FUNDO (Sempre fixo)
+    // 1. DESENHA FUNDO (Parallax e Nebulosa)
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
     if (bgImage.complete) {
         ctx.save();
-        ctx.globalAlpha = 0.3;
+        ctx.globalAlpha = 0.2;
         ctx.drawImage(bgImage, 0, 0, GAME_WIDTH, GAME_HEIGHT);
         ctx.restore();
     }
+
+    // Camadas de Estrelas (Sempre se movendo levemente para a esquerda)
+    bgX += 0.2 * gameSpeed;
+    starLayers.forEach(layer => {
+        ctx.save();
+        ctx.fillStyle = '#fff';
+        ctx.globalAlpha = layer.alpha;
+        layer.stars.forEach(star => {
+            // Calcula posição com base no scroll global e velocidade da camada
+            let sx = (star.x - bgX * layer.speed * 10) % GAME_WIDTH;
+            if (sx < 0) sx += GAME_WIDTH;
+            
+            ctx.beginPath();
+            ctx.arc(sx, star.y, layer.size, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.restore();
+    });
 
     if (!gameActive && gameSpeed === 1.0) return;
 
@@ -1022,10 +1227,10 @@ function draw() {
     // 3. --- ELEMENTOS DO MUNDO (AFETADOS PELO ZOOM) ---
     ctx.save();
     
-    if (camera.active) {
-        // Se estiver rastreando uma bala, a câmera segue a posição X/Y dela dinamicamente
-        const trackX = camera.targetBullet ? camera.targetBullet.x : camera.x;
-        const trackY = camera.targetBullet ? camera.targetBullet.y : camera.y;
+    if (camera.active || camera.scale !== 1.0) {
+        // Se estiver rastreando uma bala ou em animação (intro/fim), foca no alvo
+        const trackX = camera.active && camera.targetBullet ? camera.targetBullet.x : (camera.active ? camera.x : GAME_WIDTH / 2);
+        const trackY = camera.active && camera.targetBullet ? camera.targetBullet.y : (camera.active ? camera.y : GAME_HEIGHT / 2);
 
         ctx.translate(GAME_WIDTH / 2, GAME_HEIGHT / 2);
         ctx.scale(camera.scale, camera.scale);
@@ -1053,6 +1258,51 @@ function draw() {
         ctx.globalAlpha = p.life;
         ctx.fillStyle = p.color;
         ctx.fillRect(p.x, p.y, 3, 3);
+        ctx.restore();
+    });
+
+    // Texto Flutuante (Damage Numbers & Intro)
+    uiEffects.forEach(eff => {
+        ctx.save();
+        ctx.globalAlpha = eff.life;
+        ctx.fillStyle = eff.color;
+        
+        if (eff.isIntro) {
+            // Estilo Especial para Intro (Contagem)
+            ctx.font = '900 120px Orbitron'; // Números bem grandes
+            ctx.textAlign = 'center';
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = eff.color;
+            
+            // Efeito de Glitch no texto
+            const glitchX = (Math.random() - 0.5) * 15;
+            ctx.fillText(eff.text, eff.x + glitchX, eff.y);
+            
+            ctx.globalAlpha = eff.life * 0.4;
+            ctx.fillStyle = '#fff';
+            ctx.fillText(eff.text, eff.x - glitchX, eff.y + 10);
+        } else {
+            ctx.font = eff.is67 ? 'bold 28px Orbitron' : 'bold 20px Inter';
+            ctx.textAlign = 'center';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = eff.color;
+            ctx.fillText(eff.is67 ? '67' : eff.text, eff.x, eff.y);
+            
+            if (eff.is67) {
+                ctx.font = 'bold 16px Orbitron';
+                ctx.fillText('-1 HP', eff.x + 35, eff.y - 15);
+            }
+        }
+        ctx.restore();
+    });
+
+    // Dash Ghosts (After-images)
+    dashGhosts.forEach(g => {
+        ctx.save();
+        ctx.translate(g.x + PLAYER_SIZE/2, g.y + PLAYER_SIZE/2);
+        ctx.rotate(g.angle);
+        ctx.globalAlpha = g.life * 0.4;
+        drawHand(ctx, g.color, PLAYER_SIZE, PLAYER_SIZE, g.handState);
         ctx.restore();
     });
 
@@ -1248,7 +1498,11 @@ function drawPlayer(p) {
         ctx.stroke();
     }
 
-    if (p.vida <= 1 && Math.sin(Date.now() / 100) > 0) {
+    if (p.damageFlash > 0) {
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = '#fff';
+        drawHand(ctx, '#fff', p.width, p.height, p.handState);
+    } else if (p.vida <= 1 && Math.sin(Date.now() / 100) > 0) {
         ctx.shadowColor = '#ff0000';
         drawHand(ctx, '#ff0000', p.width, p.height, p.handState);
     } else {
