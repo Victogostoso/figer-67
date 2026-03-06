@@ -62,7 +62,7 @@ body {
 
 #game-title {
     font-family: var(--font-gaming);
-    font-size: 5.5rem;
+    font-size: 4.5rem; /* Reduzido de 5.5rem */
     font-weight: 900;
     margin: 0;
     letter-spacing: -4px;
@@ -79,7 +79,7 @@ body {
     font-family: var(--font-gaming);
     font-size: 0.8rem;
     color: var(--accent);
-    margin-bottom: 2rem;
+    margin-bottom: 1rem; /* Reduzido de 2rem */
     letter-spacing: 2px;
 }
 
@@ -102,7 +102,7 @@ body {
     display: flex;
     gap: 1rem;
     justify-content: center;
-    margin-bottom: 2rem;
+    margin-bottom: 1rem; /* Reduzido de 2rem */
 }
 
 .mode-btn {
@@ -128,11 +128,53 @@ body {
     background: rgba(255, 174, 0, 0.1);
 }
 
+#arena-selection {
+    margin-bottom: 1rem; /* Reduzido de 2rem */
+}
+
+.selection-label {
+    font-family: var(--font-gaming);
+    font-size: 0.7rem;
+    color: #888;
+    margin-bottom: 0.8rem;
+    letter-spacing: 1px;
+}
+
+.arena-btns {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+.arena-btn {
+    padding: 0.5rem 1rem;
+    font-family: var(--font-gaming);
+    font-size: 0.75rem;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #666;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-radius: 2px;
+}
+
+.arena-btn:hover {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.arena-btn.selected {
+    border-color: var(--p1-color);
+    color: var(--p1-color);
+    box-shadow: 0 0 10px rgba(0, 247, 255, 0.3);
+    background: rgba(0, 247, 255, 0.05);
+}
+
 #start-btn,
 #restart-btn {
-    padding: 1.2rem 3.5rem;
+    padding: 1rem 3rem; /* Reduzido de 1.2 e 3.5 */
     font-family: var(--font-gaming);
-    font-size: 1.4rem;
+    font-size: 1.2rem; /* Reduzido de 1.4 */
     font-weight: 900;
     color: #000;
     background-color: var(--accent);
@@ -153,13 +195,13 @@ body {
 
 #controls-hint {
     display: flex;
-    gap: 4rem;
-    margin-top: 3rem;
+    gap: 2rem; /* Reduzido de 4rem */
+    margin-top: 1.5rem; /* Reduzido de 3rem */
 }
 
 .control-box {
     background: rgba(255, 255, 255, 0.05);
-    padding: 1.5rem;
+    padding: 0.8rem 1.2rem; /* Reduzido de 1.5rem */
     border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(10px);

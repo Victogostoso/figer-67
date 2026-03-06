@@ -50,6 +50,8 @@ let shieldBox = null; // Novo: Coletável de escudo
 let camera = { x: 0, y: 0, scale: 1, active: false, targetBullet: null }; // Novo: targetBullet para rastreio
 let botLastDecision = 0; // Para IA decidir novos pontos
 let botAITarget = { x: 0, y: 0 };
+let currentArena = 'classic'; // Novo: tipo de arena ativa
+let lastHitTime = { p1: 0, p2: 0 }; // Novo: para tremor do HUD
 
 // Cores Neon
 const COLORS = {
@@ -323,16 +325,33 @@ function spawnShield() {
  * Gera obstáculos no centro
  */
 function spawnObstacles() {
-    obstacles = [{
-        x: GAME_WIDTH / 2 - 15,
-        y: GAME_HEIGHT / 2 - 60,
-        w: 30,
-        h: 120,
-        hp: 2, // Agora durável até 2 hits
-        maxHp: 2,
-        vy: 3, 
-        dir: 1 
-    }];
+    obstacles = [];
+    
+    if (currentArena === 'classic') {
+        // Barreira Única Central que se move (Sua ideia anterior)
+        obstacles.push({
+            x: GAME_WIDTH / 2 - 15,
+            y: GAME_HEIGHT / 2 - 60,
+            w: 30,
+            h: 120,
+            hp: 2,
+            maxHp: 2,
+            vy: 3, 
+            dir: 1 
+        });
+    } else if (currentArena === 'chaos') {
+        // CAOS: Duas barreiras menores girando ou se movendo rápido
+        obstacles.push({
+            x: GAME_WIDTH / 2 - 60, y: 100, w: 20, h: 80, hp: 1, maxHp: 1, vy: 5, dir: 1
+        });
+        obstacles.push({
+            x: GAME_WIDTH / 2 + 40, y: GAME_HEIGHT - 180, w: 20, h: 80, hp: 1, maxHp: 1, vy: 5, dir: -1
+        });
+    } else if (currentArena === 'corridor') {
+        // CORREDOR: Paredes laterais forçando o meio
+        obstacles.push({ x: GAME_WIDTH / 2 - 20, y: 0, w: 40, h: 180, hp: 5, maxHp: 5, vy: 0, dir: 1 });
+        obstacles.push({ x: GAME_WIDTH / 2 - 20, y: GAME_HEIGHT - 180, w: 40, h: 180, hp: 5, maxHp: 5, vy: 0, dir: 1 });
+    }
 }
 
 /**
@@ -381,8 +400,8 @@ function endGame(winner) {
     // ATIVA O SLOW MOTION FINAL (SOLICITADO 2%)
     gameSpeed = 0.02; 
     
-    // Zoom Maciço no momento da desintegração
-    camera.scale = 8.0; 
+    // Zoom mais equilibrado no momento da desintegração
+    camera.scale = 4.0; // Reduzido de 8.0
 
     // Explosão massiva de destroços no perdedor
     const target = (winner === 1) ? player2 : player1;
@@ -424,6 +443,22 @@ duoBtn.addEventListener('click', () => {
     isSoloMode = false;
     duoBtn.classList.add('selected');
     soloBtn.classList.remove('selected');
+});
+
+// Arena Selection Listeners
+const arenaBtns = {
+    classic: document.getElementById('arena-classic'),
+    chaos: document.getElementById('arena-chaos'),
+    corridor: document.getElementById('arena-corridor')
+};
+
+Object.keys(arenaBtns).forEach(key => {
+    arenaBtns[key].addEventListener('click', () => {
+        currentArena = key;
+        // Atualiza UI
+        Object.values(arenaBtns).forEach(btn => btn.classList.remove('selected'));
+        arenaBtns[key].classList.add('selected');
+    });
 });
 
 /**
@@ -823,7 +858,7 @@ function update(speed) {
             if (verticalDist < 120) {
                 camera.active = true;
                 camera.targetBullet = bullet;
-                camera.scale = 5.0; // Zoom de percurso intenso
+                camera.scale = 2.5; // Reduzido de 5.0 (Zoom de percurso equilibrado)
                 gameSpeed = 0.02; // Super slow motion no trajeto (2%)
 
                 // Limite de segurança: 3 segundos no máximo para a animação
@@ -879,6 +914,7 @@ function update(speed) {
             createExplosion(bullet.x, bullet.y, victim.color);
             screenShake = 15;
             victim.vida--;
+            lastHitTime[`p${victim.id}`] = Date.now(); // Marca tempo do hit para o HUD
             bullets.splice(index, 1); // Garante que a bala sumiu
 
             if (victim.vida <= 0) {
@@ -1242,23 +1278,27 @@ function drawPlayer(p) {
 function drawHUD(player, x, y, align) {
     ctx.save();
 
+    // --- ANIMAÇÃO DE IMPACTO (SHAKE) NO HUD ---
+    const timeSinceHit = Date.now() - lastHitTime[`p${player.id}`];
+    let hudShakeX = 0;
+    let hudShakeY = 0;
+    if (timeSinceHit < 500) {
+        hudShakeX = (Math.random() - 0.5) * 15 * (1 - timeSinceHit / 500);
+        hudShakeY = (Math.random() - 0.5) * 15 * (1 - timeSinceHit / 500);
+    }
+
+    ctx.translate(hudShakeX, hudShakeY);
+
     // Efeito de Glitch se estiver com vida crítica (1 vida)
     let offsetX = 0;
     let glitchAlpha = 1;
     let hudColor = player.color;
 
     if (player.vida <= 1) {
-        // 20% de chance de glitch por frame para um efeito intermitente
         if (Math.random() > 0.8) {
             offsetX = (Math.random() - 0.5) * 8;
             glitchAlpha = 0.4 + Math.random() * 0.6;
             hudColor = Math.random() > 0.5 ? '#f00' : player.color;
-
-            // Desenha um "fantasma" do glitch atrás
-            ctx.fillStyle = '#f0f';
-            ctx.globalAlpha = 0.3;
-            const glitchLabel = player.id === 1 ? 'RAFAEL' : 'ROSSETTI';
-            ctx.fillText(glitchLabel, x - offsetX, y);
         }
     }
 
@@ -1268,41 +1308,45 @@ function drawHUD(player, x, y, align) {
     ctx.globalAlpha = glitchAlpha;
 
     const label = player.id === 1 ? 'RAFAEL' : (isSoloMode ? 'ROSSETTI [BOT]' : 'ROSSETTI');
+    
+    // --- CORAÇÕES QUE PULSAM ---
     const heartIcon = '❤️';
-    const ammoIcon = '⚡';
+    const deadHeart = '🖤';
+    const heartScale = 1 + Math.sin(Date.now() / 200) * 0.1;
 
-    // Vidas
+    // Desenha Label
+    ctx.fillText(label, x + offsetX, y);
+    
+    // Desenha Vidas com animação
+    ctx.font = '32px Inter';
     let livesStr = '';
     for (let i = 0; i < INITIAL_LIVES; i++) {
-        livesStr += i < player.vida ? heartIcon : '🖤';
+        livesStr += i < player.vida ? heartIcon : deadHeart;
     }
-
-    // Desenho
-    ctx.fillText(label, x + offsetX, y);
-    ctx.font = '32px Inter';
     ctx.fillText(livesStr, x + offsetX, y + 40);
 
-    // Cor da munição
+    // --- MUNIÇÃO PULSANTE SE VAZIA ---
+    const ammoIcon = '⚡';
+    let ammoScale = 1.0;
+    if (player.balas === 0) {
+        ammoScale = 1 + Math.sin(Date.now() / 100) * 0.2;
+        ctx.fillStyle = '#ff4444';
+    } else {
+        ctx.fillStyle = '#fff';
+    }
+
+    ctx.save();
+    ctx.translate(x + (align === 'right' ? -40 : 40), y + 80);
+    ctx.scale(ammoScale, ammoScale);
     ctx.font = 'bold 22px Orbitron';
-    ctx.fillStyle = player.balas === 0 ? '#ff4444' : '#fff';
-    ctx.fillText(`${align === 'left' ? ammoIcon : ''} ${player.balas}/${MAX_AMMO} ${align === 'right' ? ammoIcon : ''}`, x + offsetX, y + 80);
+    ctx.fillText(`${align === 'left' ? ammoIcon : ''} ${player.balas}/${MAX_AMMO} ${align === 'right' ? ammoIcon : ''}`, 0, 0);
+    ctx.restore();
 
     // Indicador de DASH
     if (player.dashReady) {
         ctx.fillStyle = player.color;
         ctx.font = 'bold 12px Orbitron';
         ctx.fillText('DASH PRONTO', x + offsetX, y + 110);
-    }
-
-    // Alerta Crítico "DANGER"
-    if (player.vida <= 1) {
-        if (Date.now() % 400 < 200) {
-            ctx.fillStyle = '#ff0000';
-            ctx.font = 'bold 12px Orbitron';
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = '#ff0000';
-            ctx.fillText('WARNING: CRITICAL STATUS', x + offsetX, y + 135);
-        }
     }
 
     ctx.restore();
