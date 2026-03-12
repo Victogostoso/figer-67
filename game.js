@@ -40,7 +40,7 @@ let obstacles = [];
 let obstacleTimer; // Controle de respawn
 let particles = [];
 let debris = []; // Novo: Destroços maiores pós-morte
-let screenShake = 0; 
+let screenShake = 0;
 let keys = {};
 let isSoloMode = true; // Novo: Padrão solo se J2 não se mexer
 let bgImage = new Image();
@@ -56,8 +56,8 @@ let uiEffects = []; // Novo: para textos flutuantes (feedback de dano)
 let dashGhosts = []; // Novo: para o efeito de "eco" no dash
 let botDifficulty = 'medium'; // Novo: easy, medium, hard
 let introTimer = 0; // Novo: para contagem regressiva 3, 2, 1
-let slowMoTimeout = null; // Novo: para controlar o limite de 3s
-
+let slowMoTimeout = null; // Novo: para controlar o limite de 1.5s
+let shockwaves = []; // Novo: anéis visuais de explosão
 // Camadas de estrelas para o Parallax (profundidade)
 let starLayers = [
     { stars: [], speed: 0.1, size: 0.8, alpha: 0.2 }, // Longe (lenta)
@@ -311,14 +311,14 @@ function resetPlayers() {
         vida: INITIAL_LIVES,
         balas: MAX_AMMO,
         color: COLORS.p1,
-        dir: 1, 
+        dir: 1,
         dashReady: true,
         shootReady: true,
         shield: false,
         invulnerable: false,
         angle: 0,
-        chargeTime: 0, 
-        recoilOffset: { x: 0, y: 0 }, 
+        chargeTime: 0,
+        recoilOffset: { x: 0, y: 0 },
         handState: 'pointing',
         destroyed: false,
         damageFlash: 0 // Novo: timer para flash de dano
@@ -347,13 +347,14 @@ function resetPlayers() {
     };
 
     particles = [];
-    uiEffects = []; 
-    dashGhosts = []; 
-    ammoBoxes = []; 
-    initStars(); 
-    spawnAmmo(); 
+    uiEffects = [];
+    dashGhosts = [];
+    ammoBoxes = [];
+    shockwaves = [];
+    initStars();
+    spawnAmmo();
     spawnObstacles();
-    spawnShield(); 
+    spawnShield();
 
     // Garante que o tempo e a câmera voltem ao normal no início de cada round
     gameSpeed = 1.0;
@@ -384,7 +385,7 @@ function spawnShield() {
  */
 function spawnObstacles() {
     obstacles = [];
-    
+
     if (currentArena === 'classic') {
         // Barreira Única Central que se move (Sua ideia anterior)
         obstacles.push({
@@ -394,8 +395,8 @@ function spawnObstacles() {
             h: 120,
             hp: 2,
             maxHp: 2,
-            vy: 3, 
-            dir: 1 
+            vy: 3,
+            dir: 1
         });
     } else if (currentArena === 'chaos') {
         // CAOS: Duas barreiras menores girando ou se movendo rápido
@@ -414,7 +415,7 @@ function spawnObstacles() {
 
 function spawnAmmo() {
     const margin = 100;
-    
+
     // Verifica se precisa de munição no LADO ESQUERDO (Rafael)
     const hasLeft = ammoBoxes.some(b => b.x < GAME_WIDTH / 2);
     if (!hasLeft) {
@@ -445,7 +446,7 @@ function startGame() {
     resetPlayers();
     player1.vida = INITIAL_LIVES;
     player2.vida = INITIAL_LIVES;
-    
+
     // Configura INTRO CINEMATOGRÁFICA
     gameActive = true;
     camera.active = false;
@@ -468,12 +469,12 @@ function startGame() {
     };
 
     createCountdown(3);
-    
+
     // Agendador da contagem
-    setTimeout(() => { if(gameActive) createCountdown(2); introTimer = 2; }, 1000);
-    setTimeout(() => { if(gameActive) createCountdown(1); introTimer = 1; }, 2000);
-    setTimeout(() => { 
-        if(gameActive) {
+    setTimeout(() => { if (gameActive) createCountdown(2); introTimer = 2; }, 1000);
+    setTimeout(() => { if (gameActive) createCountdown(1); introTimer = 1; }, 2000);
+    setTimeout(() => {
+        if (gameActive) {
             uiEffects.push({
                 x: GAME_WIDTH / 2,
                 y: GAME_HEIGHT / 2 - 50,
@@ -506,12 +507,12 @@ function endGame(winner) {
     if (!gameActive) return; // Evita múltiplas chamadas se houver várias balas
     gameActive = false; // Bloqueia inputs imediatamente
     AudioEngine.bgm.stop();
-    AudioEngine.playVictory(); 
-    
+    AudioEngine.playVictory();
+
     if (obstacleTimer) clearInterval(obstacleTimer);
-    
+
     // Reseta câmera e mantêm o foco na arena inteira
-    gameSpeed = 1.0; 
+    gameSpeed = 1.0;
     camera.active = false;
     camera.targetBullet = null;
     camera.scale = 1.0;
@@ -521,10 +522,44 @@ function endGame(winner) {
     // Explosão massiva de destroços no perdedor
     const target = (winner === 1) ? player2 : player1;
     target.destroyed = true; // Jogador some instantaneamente
-    createDebris(target.x + target.width/2, target.y + target.height/2, target.color);
-    
+
+    // Efeito de Destroços e Partículas
+    createDebris(target.x + target.width / 2, target.y + target.height / 2, target.color);
+    createExplosion(target.x + target.width / 2, target.y + target.height / 2, '#fff');
+    createExplosion(target.x + target.width / 2, target.y + target.height / 2, target.color);
+
+    // Efeito de Ondas de Choque (Shockwaves)
+    shockwaves.push({
+        x: target.x + target.width / 2,
+        y: target.y + target.height / 2,
+        radius: 10,
+        speed: 15,
+        thickness: 25,
+        decay: 0.02,
+        alpha: 1.0,
+        color: '#fff'
+    });
+
     setTimeout(() => {
-        gameSpeed = 1.0; 
+        if (shockwaves) {
+            shockwaves.push({
+                x: target.x + target.width / 2,
+                y: target.y + target.height / 2,
+                radius: 10,
+                speed: 10,
+                thickness: 15,
+                decay: 0.015,
+                alpha: 1.0,
+                color: target.color
+            });
+        }
+    }, 150);
+
+    // Tremor de tela brutal
+    screenShake = 40;
+
+    setTimeout(() => {
+        gameSpeed = 1.0;
         camera.active = false;
         camera.targetBullet = null;
         camera.scale = 1.0;
@@ -534,7 +569,7 @@ function endGame(winner) {
         startBtn.classList.add('hidden');
         winnerText.innerText = winner === 1 ? "RAFAEL VENCEU!" : "ROSSETTI VENCEU!";
         winnerText.style.textShadow = `0 0 20px ${winner === 1 ? COLORS.p1 : COLORS.p2}`;
-    }, 1500); 
+    }, 1500);
 }
 
 // Event Listeners
@@ -603,7 +638,7 @@ function shoot(player, isCharged = false) {
     if (player.balas > 0 && player.shootReady) {
         // Conversão automática: se não tem munição para carregado, solta normal
         if (isCharged && player.balas < 2) isCharged = false;
-        
+
         AudioEngine.playShoot();
 
         // Determina a direção vertical baseada no movimento atual
@@ -635,7 +670,7 @@ function shoot(player, isCharged = false) {
 
         // Efeito de Recuo (Coice) na mão
         player.recoilOffset.x = -player.dir * (isCharged ? 15 : 8);
-        
+
         player.balas -= isCharged ? 2 : 1;
         player.shootReady = false;
         screenShake = isCharged ? 10 : 3;
@@ -664,9 +699,19 @@ function update(speed) {
     });
 
     // Suavização da Câmera (Intro ou Retorno do Bullet Time)
-    if (!camera.active && camera.scale !== 1.0) {
-        camera.scale += (1.0 - camera.scale) * 0.1 * speed; // Retorno mais rápido e fluido
-        if (Math.abs(camera.scale - 1.0) < 0.01) camera.scale = 1.0;
+    if (camera.active && camera.targetBullet) {
+        camera.x = camera.targetBullet.x;
+        camera.y = camera.targetBullet.y;
+    } else if (!camera.active && camera.scale !== 1.0) {
+        camera.scale += (1.0 - camera.scale) * 0.1 * speed; // Retorno do zoom
+        camera.x += (GAME_WIDTH / 2 - camera.x) * 0.1 * speed; // Suaviza posição X para o centro
+        camera.y += (GAME_HEIGHT / 2 - camera.y) * 0.1 * speed; // Suaviza posição Y para o centro
+
+        if (Math.abs(camera.scale - 1.0) < 0.01) {
+            camera.scale = 1.0;
+            camera.x = GAME_WIDTH / 2;
+            camera.y = GAME_HEIGHT / 2;
+        }
     }
 
     // Bloqueia movimento se a intro estiver acontecendo
@@ -675,16 +720,16 @@ function update(speed) {
     }
 
     // Movimento e Dash Player 1
-    if (keys['KeyW'] && player1.y > 0) { player1.y -= moveStep; player1.angle = -Math.PI/2; }
-    if (keys['KeyS'] && player1.y < GAME_HEIGHT - player1.height) { player1.y += moveStep; player1.angle = Math.PI/2; }
+    if (keys['KeyW'] && player1.y > 0) { player1.y -= moveStep; player1.angle = -Math.PI / 2; }
+    if (keys['KeyS'] && player1.y < GAME_HEIGHT - player1.height) { player1.y += moveStep; player1.angle = Math.PI / 2; }
     if (keys['KeyA'] && player1.x > 0) { player1.x -= moveStep; player1.angle = Math.PI; player1.dir = -1; }
     if (keys['KeyD'] && player1.x < GAME_WIDTH / 2 - player1.width) { player1.x += moveStep; player1.angle = 0; player1.dir = 1; }
-    
+
     //Ângulos diagonais P1
-    if (keys['KeyW'] && keys['KeyD']) player1.angle = -Math.PI/4;
-    if (keys['KeyW'] && keys['KeyA']) player1.angle = -3*Math.PI/4;
-    if (keys['KeyS'] && keys['KeyD']) player1.angle = Math.PI/4;
-    if (keys['KeyS'] && keys['KeyA']) player1.angle = 3*Math.PI/4;
+    if (keys['KeyW'] && keys['KeyD']) player1.angle = -Math.PI / 4;
+    if (keys['KeyW'] && keys['KeyA']) player1.angle = -3 * Math.PI / 4;
+    if (keys['KeyS'] && keys['KeyD']) player1.angle = Math.PI / 4;
+    if (keys['KeyS'] && keys['KeyA']) player1.angle = 3 * Math.PI / 4;
 
     // Movimentação da Barreira Central e Colisões
     obstacles.forEach(ob => {
@@ -724,7 +769,7 @@ function update(speed) {
 
         player1.dashReady = false;
         player1.handState = 'fist'; // Fecha o punho
-        
+
         // Cria ecos também na posição final para completar o rastro
         createDashGhosts(player1);
 
@@ -739,23 +784,23 @@ function update(speed) {
     if (keys['Space'] && player1.balas >= 1) {
         player1.chargeTime += 16.6; // Aprox 60hz
     } else if (!keys['Space'] && player1.chargeTime > 0) {
-        if (player1.chargeTime >= 800) shoot(player1, true); 
+        if (player1.chargeTime >= 800) shoot(player1, true);
         else shoot(player1, false);
         player1.chargeTime = 0;
     }
 
     // Movimento e Dash Player 2 (SOMENTE SE NÃO FOR BOT)
     if (!isSoloMode) {
-        if (keys['ArrowUp'] && player2.y > 0) { player2.y -= moveStep; player2.angle = -Math.PI/2; }
-        if (keys['ArrowDown'] && player2.y < GAME_HEIGHT - player2.height) { player2.y += moveStep; player2.angle = Math.PI/2; }
+        if (keys['ArrowUp'] && player2.y > 0) { player2.y -= moveStep; player2.angle = -Math.PI / 2; }
+        if (keys['ArrowDown'] && player2.y < GAME_HEIGHT - player2.height) { player2.y += moveStep; player2.angle = Math.PI / 2; }
         if (keys['ArrowLeft'] && player2.x > GAME_WIDTH / 2) { player2.x -= moveStep; player2.angle = Math.PI; player2.dir = -1; }
         if (keys['ArrowRight'] && player2.x < GAME_WIDTH - player2.width) { player2.x += moveStep; player2.angle = 0; player2.dir = 1; }
 
         // Diagonais P2
-        if (keys['ArrowUp'] && keys['ArrowRight']) player2.angle = -Math.PI/4;
-        if (keys['ArrowUp'] && keys['ArrowLeft']) player2.angle = -3*Math.PI/4;
-        if (keys['ArrowDown'] && keys['ArrowRight']) player2.angle = Math.PI/4;
-        if (keys['ArrowDown'] && keys['ArrowLeft']) player2.angle = 3*Math.PI/4;
+        if (keys['ArrowUp'] && keys['ArrowRight']) player2.angle = -Math.PI / 4;
+        if (keys['ArrowUp'] && keys['ArrowLeft']) player2.angle = -3 * Math.PI / 4;
+        if (keys['ArrowDown'] && keys['ArrowRight']) player2.angle = Math.PI / 4;
+        if (keys['ArrowDown'] && keys['ArrowLeft']) player2.angle = 3 * Math.PI / 4;
     }
 
     // Colisão P2 com Obstáculos
@@ -787,7 +832,7 @@ function update(speed) {
         player2.dashReady = false;
         player2.handState = 'fist';
         createDashGhosts(player2);
-        
+
         createExplosion(player2.x + player2.width / 2, player2.y + player2.height / 2, COLORS.p2);
         setTimeout(() => {
             player2.dashReady = true;
@@ -817,10 +862,10 @@ function update(speed) {
         if (botDifficulty === 'hard') decisionThreshold = 400;
         if (botDifficulty === 'impossible') decisionThreshold = 100; // Reação quase instantânea
 
-        botLastDecision += 16.6 * speed; 
+        botLastDecision += 16.6 * speed;
         if (botLastDecision > decisionThreshold || (lowAmmo && ammoBoxes.length > 0)) {
             botLastDecision = 0;
-            
+
             const ammoInMySide = ammoBoxes.length > 0 && ammoBoxes[0].x > GAME_WIDTH / 2;
 
             if (lowAmmo && ammoInMySide && ammoBoxes.length > 0) {
@@ -855,28 +900,28 @@ function update(speed) {
         let movingX = 0;
 
         // Zona morta maior (25px) para evitar trocas de direção infinitas
-        if (player2.y < (botAITarget.y + jitterY) - 25) { 
-            player2.y += moveStep * speedMult; 
-            movingY = 1; 
-        } else if (player2.y > (botAITarget.y + jitterY) + 25) { 
-            player2.y -= moveStep * speedMult; 
-            movingY = -1; 
+        if (player2.y < (botAITarget.y + jitterY) - 25) {
+            player2.y += moveStep * speedMult;
+            movingY = 1;
+        } else if (player2.y > (botAITarget.y + jitterY) + 25) {
+            player2.y -= moveStep * speedMult;
+            movingY = -1;
         }
 
-        if (player2.x < (botAITarget.x + jitterX) - 25) { 
-            player2.x += moveStep * speedMult; 
-            movingX = 1; 
-        } else if (player2.x > (botAITarget.x + jitterX) + 25) { 
-            player2.x -= moveStep * speedMult; 
-            movingX = -1; 
+        if (player2.x < (botAITarget.x + jitterX) - 25) {
+            player2.x += moveStep * speedMult;
+            movingX = 1;
+        } else if (player2.x > (botAITarget.x + jitterX) + 25) {
+            player2.x -= moveStep * speedMult;
+            movingX = -1;
         }
 
         // Atualização Suave do Ângulo (evita snapping brusco, respeita o slow motion)
         let targetAngle = player2.angle;
         if (movingX === 1) targetAngle = 0;
         else if (movingX === -1) targetAngle = Math.PI;
-        else if (movingY === 1) targetAngle = Math.PI/2;
-        else if (movingY === -1) targetAngle = -Math.PI/2;
+        else if (movingY === 1) targetAngle = Math.PI / 2;
+        else if (movingY === -1) targetAngle = -Math.PI / 2;
 
         // Interpolação ponderada pela velocidade
         player2.angle += (targetAngle - player2.angle) * 0.1 * speed;
@@ -889,7 +934,7 @@ function update(speed) {
         const alignedThreshold = botDifficulty === 'impossible' ? 90 : (botDifficulty === 'hard' ? 70 : 50);
         const shootChance = botDifficulty === 'impossible' ? 0.12 : (botDifficulty === 'hard' ? 0.05 : 0.03);
         const aligned = Math.abs(player2.y - player1.y) < alignedThreshold;
-        
+
         if (aligned && player2.balas > 0 && Math.random() < shootChance) {
             const useCharged = player2.balas >= 3 && Math.random() > (botDifficulty === 'hard' ? 0.6 : 0.8);
             if (useCharged) {
@@ -905,17 +950,17 @@ function update(speed) {
         }
 
         // Tenta desviar de balas com Dash reativo
-        const dashDetectionDist = botDifficulty === 'impossible' ? 0.2 : (botDifficulty === 'hard' ? 0.4 : (botDifficulty === 'medium' ? 0.7 : 0.85)); 
+        const dashDetectionDist = botDifficulty === 'impossible' ? 0.2 : (botDifficulty === 'hard' ? 0.4 : (botDifficulty === 'medium' ? 0.7 : 0.85));
         bullets.forEach(b => {
             if (b.owner === 1 && Math.abs(b.y - player2.y) < 60 && b.x > GAME_WIDTH * dashDetectionDist) {
                 if (player2.dashReady) {
                     const dashDir = b.y > player2.y ? -1 : 1;
                     player2.y += dashDir * DASH_DISTANCE;
                     player2.y = Math.max(0, Math.min(GAME_HEIGHT - player2.height, player2.y));
-                    
+
                     createDashGhosts(player2);
                     player2.dashReady = false;
-                    createExplosion(player2.x + player2.width/2, player2.y + player2.height/2, COLORS.p2);
+                    createExplosion(player2.x + player2.width / 2, player2.y + player2.height / 2, COLORS.p2);
                     setTimeout(() => player2.dashReady = true, DASH_COOLDOWN);
                 }
             }
@@ -932,7 +977,7 @@ function update(speed) {
 
     // Atirar (Input normal bloqueado se estiver carregando)
     // Os botões agora são gerenciados pela lógica de carga acima para evitar tiro duplo
-    
+
     // Atualiza Balas
     bullets.forEach((bullet, index) => {
         bullet.trail.push({ x: bullet.x, y: bullet.y });
@@ -943,7 +988,7 @@ function update(speed) {
 
         // Ricochete Teto/Chão
         if (bullet.y < 0 || bullet.y > GAME_HEIGHT) {
-            if (bullet.bounces < (bullet.isCharged ? 0 : 1)) { 
+            if (bullet.bounces < (bullet.isCharged ? 0 : 1)) {
                 bullet.vy *= -1;
                 bullet.y = bullet.y < 0 ? 0 : GAME_HEIGHT;
                 bullet.bounces++;
@@ -968,7 +1013,7 @@ function update(speed) {
 
         // Ricochete Paredes Laterais
         if (bullet.x < 0 || bullet.x > GAME_WIDTH) {
-            if (bullet.bounces < 1) { 
+            if (bullet.bounces < 1) {
                 bullet.vx *= -1;
                 bullet.x = bullet.x < 0 ? 0 : GAME_WIDTH;
                 bullet.bounces++;
@@ -998,8 +1043,8 @@ function update(speed) {
 
                 ob.hp -= bullet.isCharged ? 3 : 1;
                 AudioEngine.playHit();
-                createExplosion(bullet.x, bullet.y, '#555'); 
-                
+                createExplosion(bullet.x, bullet.y, '#555');
+
                 // Cancela Bullet Time se bater num obstáculo e memoriza local
                 if (camera.targetBullet === bullet) {
                     gameSpeed = 1.0;
@@ -1009,97 +1054,39 @@ function update(speed) {
                     camera.targetBullet = null;
                 }
 
-                if (!bullet.isCharged) bullets.splice(index, 1); 
+                if (!bullet.isCharged) bullets.splice(index, 1);
                 else screenShake = 6;
-                
+
                 if (ob.hp <= 0) {
                     createExplosion(ob.x + ob.w / 2, ob.y + ob.h / 2, '#fff');
                     obstacles.splice(obIdx, 1);
-                    
+
                     // Renasce em 10 segundos para manter o jogo dinâmico
-                    setTimeout(spawnObstacles, 10000); 
+                    setTimeout(spawnObstacles, 10000);
                 }
                 return;
             }
         });
 
-        // DETECÇÃO ANTECIPADA DE BULLET TIME (Acompanhamento da Bala Fatal)
-        const potentialVictim = bullet.owner === 1 ? player2 : player1;
-        const inDangerZone = (bullet.owner === 1 && bullet.x > GAME_WIDTH * 0.8) || 
-                             (bullet.owner === 2 && bullet.x < GAME_WIDTH * 0.2);
-
-        if (gameActive && potentialVictim.vida <= 1 && !potentialVictim.shield && inDangerZone && !camera.active) {
-            // Verifica se a bala está realmente na direção vertical do player
-            const verticalDist = Math.abs(bullet.y - (potentialVictim.y + potentialVictim.height/2));
-            if (verticalDist < 120) {
-                // --- NOVA LÓGICA DE DINÂMICA DO SLOW MOTION ---
-                const isMasterShot = bullet.bounces > 0 || bullet.isCharged;
-                const bulletTimeChance = isMasterShot ? 1.0 : 0.5; // Reduzido de 70% para 50%
-                
-                if (Math.random() < bulletTimeChance) {
-                    camera.active = true;
-                    camera.targetBullet = bullet;
-                    camera.scale = 2.5 + (Math.random() * 1.5); // Zoom varia entre 2.5x e 4.0x
-                    
-                    // Velocidade variável (entre 1% e 7%)
-                    gameSpeed = 0.01 + (Math.random() * 0.06);
-
-                    if (isMasterShot) {
-                        uiEffects.push({
-                            x: GAME_WIDTH / 2,
-                            y: 100,
-                            vy: -1,
-                            life: 1.5,
-                            text: 'MASTER SHOT',
-                            color: COLORS.accent,
-                            is67: true
-                        });
-                    }
-
-                    if (slowMoTimeout) clearTimeout(slowMoTimeout);
-                    slowMoTimeout = setTimeout(() => {
-                        if (camera.active && gameActive) {
-                            gameSpeed = 1.0;
-                            camera.active = false;
-                            camera.targetBullet = null;
-                            camera.scale = 1.0;
-                        }
-                    }, 3000);
-                }
-            }
-        }
-
-        // CANCELA BULLET TIME SE A BALA ERRAR O ALVO (Distanciar-se)
-        if (camera.active && camera.targetBullet === bullet) {
-            const passed = (bullet.owner === 1 && bullet.x > potentialVictim.x + potentialVictim.width) ||
-                           (bullet.owner === 2 && bullet.x < potentialVictim.x);
-            
-            if (passed) {
-                gameSpeed = 1.0;
-                camera.active = false;
-                camera.x = bullet.x;
-                camera.y = bullet.y;
-                camera.targetBullet = null;
-            }
-        }
+        // DETECÇÃO ANTECIPADA DE BULLET TIME E CANCELAMENTO FORAM REMOVIDOS AQUI
 
         // Colisão com Jogadores
         const p1Hit = bullet.owner === 2 &&
-            Math.abs(bullet.x - (player1.x + player1.width/2)) < (bullet.radius + player1.width/2) &&
-            Math.abs(bullet.y - (player1.y + player1.height/2)) < (bullet.radius + player1.height/2);
+            Math.abs(bullet.x - (player1.x + player1.width / 2)) < (bullet.radius + player1.width / 2) &&
+            Math.abs(bullet.y - (player1.y + player1.height / 2)) < (bullet.radius + player1.height / 2);
 
         const p2Hit = bullet.owner === 1 &&
-            Math.abs(bullet.x - (player2.x + player2.width/2)) < (bullet.radius + player2.width/2) &&
-            Math.abs(bullet.y - (player2.y + player2.height/2)) < (bullet.radius + player2.height/2);
+            Math.abs(bullet.x - (player2.x + player2.width / 2)) < (bullet.radius + player2.width / 2) &&
+            Math.abs(bullet.y - (player2.y + player2.height / 2)) < (bullet.radius + player2.height / 2);
 
         if (p1Hit || p2Hit) {
             const victim = p1Hit ? player1 : player2;
-            
+
             if (victim.shield) {
                 victim.shield = false;
                 createExplosion(bullet.x, bullet.y, '#fff');
                 AudioEngine.playHit();
-                
+
                 // Reset de camera se acertar o escudo no slow mo
                 if (camera.targetBullet === bullet) {
                     gameSpeed = 1.0;
@@ -1114,6 +1101,11 @@ function update(speed) {
             }
 
             if (victim.invulnerable) {
+                if (camera.targetBullet === bullet) {
+                    gameSpeed = 1.0;
+                    camera.active = false;
+                    camera.targetBullet = null;
+                }
                 bullets.splice(index, 1);
                 return;
             }
@@ -1123,10 +1115,10 @@ function update(speed) {
             screenShake = 15;
             victim.vida--;
             victim.damageFlash = 200; // Pisca por 200ms
-            
+
             // Texto Flutuante de Dano
             uiEffects.push({
-                x: victim.x + victim.width/2,
+                x: victim.x + victim.width / 2,
                 y: victim.y,
                 vy: -2,
                 life: 1.0,
@@ -1136,7 +1128,7 @@ function update(speed) {
             });
 
             lastHitTime[`p${victim.id}`] = Date.now(); // Marca tempo do hit para o HUD
-            
+
             // NOVO: Reset de câmera obrigatório ao atingir o jogador (evita bug de slow infinito)
             if (camera.targetBullet === bullet) {
                 gameSpeed = 1.0;
@@ -1183,6 +1175,13 @@ function update(speed) {
         if (d.life <= 0) debris.splice(idx, 1);
     });
 
+    // Shockwaves (Anéis de explosão)
+    shockwaves.forEach((sw, idx) => {
+        sw.radius += sw.speed * speed;
+        sw.alpha -= sw.decay * speed;
+        if (sw.alpha <= 0) shockwaves.splice(idx, 1);
+    });
+
     // Colisão com Munição
     ammoBoxes.forEach((box, index) => {
         const p1Col = Math.abs(player1.x + player1.width / 2 - box.x) < 30 && Math.abs(player1.y + player1.height / 2 - box.y) < 30;
@@ -1199,9 +1198,9 @@ function update(speed) {
 
     // Colisão com Escudo
     if (shieldBox && shieldBox.active) {
-        const p1Col = Math.abs(player1.x + player1.width/2 - shieldBox.x) < 30 && Math.abs(player1.y+player1.height/2 - shieldBox.y) < 30;
-        const p2Col = Math.abs(player2.x + player2.width/2 - shieldBox.x) < 30 && Math.abs(player2.y+player2.height/2 - shieldBox.y) < 30;
-        
+        const p1Col = Math.abs(player1.x + player1.width / 2 - shieldBox.x) < 30 && Math.abs(player1.y + player1.height / 2 - shieldBox.y) < 30;
+        const p2Col = Math.abs(player2.x + player2.width / 2 - shieldBox.x) < 30 && Math.abs(player2.y + player2.height / 2 - shieldBox.y) < 30;
+
         if (p1Col || p2Col) {
             const p = p1Col ? player1 : player2;
             p.shield = true;
@@ -1242,16 +1241,14 @@ function draw() {
             // Calcula posição com base no scroll global e velocidade da camada
             let sx = (star.x - bgX * layer.speed * 10) % GAME_WIDTH;
             if (sx < 0) sx += GAME_WIDTH;
-            
+
             ctx.beginPath();
             ctx.arc(sx, star.y, layer.size, 0, Math.PI * 2);
             ctx.fill();
         });
         ctx.restore();
     });
-
-    if (!gameActive && gameSpeed === 1.0) return;
-
+    if (!player1 || (!gameActive && gameSpeed === 1.0 && debris.length === 0 && shockwaves.length === 0 && particles.length === 0)) return;
     // 2. DESENHA HUD E ALERTAS (Sempre fixos na tela)
     drawHUD(player1, 20, 40, 'left');
     drawHUD(player2, GAME_WIDTH - 20, 40, 'right');
@@ -1281,15 +1278,11 @@ function draw() {
 
     // 3. --- ELEMENTOS DO MUNDO (AFETADOS PELO ZOOM) ---
     ctx.save();
-    
-    if (camera.active || camera.scale !== 1.0) {
-        // Se estiver rastreando uma bala, usa ela. Senão (retorno de zoom), usa a última posição (camera.x)
-        const trackX = (camera.active && camera.targetBullet) ? camera.targetBullet.x : camera.x;
-        const trackY = (camera.active && camera.targetBullet) ? camera.targetBullet.y : camera.y;
 
+    if (camera.active || camera.scale !== 1.0) {
         ctx.translate(GAME_WIDTH / 2, GAME_HEIGHT / 2);
         ctx.scale(camera.scale, camera.scale);
-        ctx.translate(-trackX, -trackY);
+        ctx.translate(-camera.x, -camera.y);
     }
 
     // Aplica Screen Shake (Afeta o mundo)
@@ -1321,18 +1314,18 @@ function draw() {
         ctx.save();
         ctx.globalAlpha = eff.life;
         ctx.fillStyle = eff.color;
-        
+
         if (eff.isIntro) {
             // Estilo Especial para Intro (Contagem)
             ctx.font = '900 120px Orbitron'; // Números bem grandes
             ctx.textAlign = 'center';
             ctx.shadowBlur = 30;
             ctx.shadowColor = eff.color;
-            
+
             // Efeito de Glitch no texto
             const glitchX = (Math.random() - 0.5) * 15;
             ctx.fillText(eff.text, eff.x + glitchX, eff.y);
-            
+
             ctx.globalAlpha = eff.life * 0.4;
             ctx.fillStyle = '#fff';
             ctx.fillText(eff.text, eff.x - glitchX, eff.y + 10);
@@ -1342,7 +1335,7 @@ function draw() {
             ctx.shadowBlur = 10;
             ctx.shadowColor = eff.color;
             ctx.fillText(eff.is67 ? '67' : eff.text, eff.x, eff.y);
-            
+
             if (eff.is67) {
                 ctx.font = 'bold 16px Orbitron';
                 ctx.fillText('-1 HP', eff.x + 35, eff.y - 15);
@@ -1354,7 +1347,7 @@ function draw() {
     // Dash Ghosts (After-images)
     dashGhosts.forEach(g => {
         ctx.save();
-        ctx.translate(g.x + PLAYER_SIZE/2, g.y + PLAYER_SIZE/2);
+        ctx.translate(g.x + PLAYER_SIZE / 2, g.y + PLAYER_SIZE / 2);
         ctx.rotate(g.angle);
         ctx.globalAlpha = g.life * 0.4;
         drawHand(ctx, g.color, PLAYER_SIZE, PLAYER_SIZE, g.handState);
@@ -1370,14 +1363,28 @@ function draw() {
         ctx.fillStyle = d.color;
         ctx.shadowBlur = 10;
         ctx.shadowColor = d.color;
-        
+
         // Desenha pedaços triangulares/quadrados
         ctx.beginPath();
-        ctx.moveTo(-d.size/2, -d.size/2);
-        ctx.lineTo(d.size/2, -d.size/2);
-        ctx.lineTo(0, d.size/2);
+        ctx.moveTo(-d.size / 2, -d.size / 2);
+        ctx.lineTo(d.size / 2, -d.size / 2);
+        ctx.lineTo(0, d.size / 2);
         ctx.closePath();
         ctx.fill();
+        ctx.restore();
+    });
+
+    // Ondas de Choque da explosão do jogador
+    shockwaves.forEach(sw => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = sw.color;
+        ctx.lineWidth = sw.thickness * sw.alpha;
+        ctx.globalAlpha = sw.alpha;
+        ctx.shadowBlur = 30;
+        ctx.shadowColor = sw.color;
+        ctx.stroke();
         ctx.restore();
     });
 
@@ -1424,7 +1431,7 @@ function draw() {
             bullet.trail.forEach((t, i) => {
                 ctx.save();
                 ctx.fillStyle = bullet.color;
-                ctx.globalAlpha = i / 20; 
+                ctx.globalAlpha = i / 20;
                 ctx.font = `bold ${bullet.isCharged ? 24 : 12}px Orbitron`;
                 ctx.fillText('67', t.x, t.y);
                 ctx.restore();
@@ -1432,7 +1439,7 @@ function draw() {
         }
 
         ctx.save();
-        ctx.fillStyle = bullet.color; 
+        ctx.fillStyle = bullet.color;
         ctx.font = `bold ${bullet.isCharged ? 32 : 18}px Orbitron`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -1467,17 +1474,17 @@ function drawHand(ctx, color, width, height, state) {
         // --- PALMA DA MÃO ---
         ctx.beginPath();
         ctx.moveTo(-18, -12);
-        ctx.quadraticCurveTo(-25, 0, -18, 12); 
-        ctx.quadraticCurveTo(-10, 18, 8, 14);   
-        ctx.lineTo(8, -10);                   
-        ctx.quadraticCurveTo(-10, -18, -18, -12); 
+        ctx.quadraticCurveTo(-25, 0, -18, 12);
+        ctx.quadraticCurveTo(-10, 18, 8, 14);
+        ctx.lineTo(8, -10);
+        ctx.quadraticCurveTo(-10, -18, -18, -12);
         ctx.stroke();
 
         // --- DEDO INDICADOR ---
         ctx.beginPath();
         ctx.moveTo(8, -8);
-        ctx.quadraticCurveTo(15, -10, 25, -8); 
-        ctx.quadraticCurveTo(28, -7, 25, -6);  
+        ctx.quadraticCurveTo(15, -10, 25, -8);
+        ctx.quadraticCurveTo(28, -7, 25, -6);
         ctx.lineTo(8, -5);
         ctx.stroke();
 
@@ -1492,8 +1499,8 @@ function drawHand(ctx, color, width, height, state) {
         // --- POLEGAR ---
         ctx.beginPath();
         ctx.moveTo(-12, -14);
-        ctx.quadraticCurveTo(-18, -22, -10, -28); 
-        ctx.quadraticCurveTo(-6, -30, -4, -24);   
+        ctx.quadraticCurveTo(-18, -22, -10, -28);
+        ctx.quadraticCurveTo(-6, -30, -4, -24);
         ctx.lineTo(-2, -14);
         ctx.stroke();
     } else if (state === 'fist') {
@@ -1507,7 +1514,7 @@ function drawHand(ctx, color, width, height, state) {
         ctx.stroke();
 
         // Detalhes dos dedos fechados no punho
-        for(let i = -8; i <= 8; i += 5) {
+        for (let i = -8; i <= 8; i += 5) {
             ctx.beginPath();
             ctx.moveTo(5, i);
             ctx.lineTo(12, i);
@@ -1529,27 +1536,27 @@ function drawHand(ctx, color, width, height, state) {
 function drawPlayer(p) {
     if (p.destroyed) return; // Se destruído, não desenha nada
     ctx.save();
-    
+
     // Posicionamento com RECUO (Recoil)
     ctx.translate(p.x + p.width / 2 + p.recoilOffset.x, p.y + p.height / 2);
-    
+
     // Rotaciona a mão para onde está apontando
     ctx.rotate(p.angle);
 
     ctx.shadowBlur = 15;
     ctx.shadowColor = p.color;
-    
+
     // Efeito de Carregamento (Glow pulsante se chargeTime > 0)
     if (p.chargeTime > 0) {
         const pulse = Math.sin(Date.now() / 50) * 10 + 20;
         ctx.shadowBlur = pulse;
         ctx.shadowColor = '#fff';
-        
+
         // Indicador circular de progresso
         ctx.beginPath();
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2;
-        ctx.arc(0, 0, p.width * 1.2, -Math.PI/2, -Math.PI/2 + (Math.min(p.chargeTime, 800) / 800) * Math.PI * 2);
+        ctx.arc(0, 0, p.width * 1.2, -Math.PI / 2, -Math.PI / 2 + (Math.min(p.chargeTime, 800) / 800) * Math.PI * 2);
         ctx.stroke();
     }
 
@@ -1575,7 +1582,7 @@ function drawPlayer(p) {
         ctx.shadowBlur = 10;
         ctx.shadowColor = '#fff';
         ctx.beginPath();
-        ctx.arc(p.x + p.width/2, p.y + p.height/2, p.width * 0.8, 0, Math.PI * 2);
+        ctx.arc(p.x + p.width / 2, p.y + p.height / 2, p.width * 0.8, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
     }
@@ -1617,7 +1624,7 @@ function drawHUD(player, x, y, align) {
     ctx.globalAlpha = glitchAlpha;
 
     const label = player.id === 1 ? 'RAFAEL' : (isSoloMode ? 'ROSSETTI [BOT]' : 'ROSSETTI');
-    
+
     // --- CORAÇÕES QUE PULSAM ---
     const heartIcon = '❤️';
     const deadHeart = '🖤';
@@ -1625,7 +1632,7 @@ function drawHUD(player, x, y, align) {
 
     // Desenha Label
     ctx.fillText(label, x + offsetX, y);
-    
+
     // Desenha Vidas com animação
     ctx.font = '32px Inter';
     let livesStr = '';
@@ -1671,8 +1678,8 @@ function gameLoop(timestamp) {
 
     update(gameSpeed);
     draw();
-    // Continua o loop enquanto o jogo estiver ativo ou houver efeitos visuais (limite 3s do timer tbm ajuda)
-    if (gameActive || debris.length > 0 || gameSpeed < 1.0) requestAnimationFrame(gameLoop);
+    const vfxActive = debris.length > 0 || shockwaves.length > 0 || particles.length > 0 || uiEffects.length > 0 || dashGhosts.length > 0;
+    if (gameActive || vfxActive || gameSpeed < 1.0) requestAnimationFrame(gameLoop);
 }
 
 // Inicializa estado visual (vazio até o jogo começar)
