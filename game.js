@@ -866,13 +866,13 @@ function update(speed) {
         if (botLastDecision > decisionThreshold || (lowAmmo && ammoBoxes.length > 0)) {
             botLastDecision = 0;
 
-            const ammoInMySide = ammoBoxes.length > 0 && ammoBoxes[0].x > GAME_WIDTH / 2;
+            const ammoBoxOnMySide = ammoBoxes.find(b => b.x > GAME_WIDTH / 2);
 
-            if (lowAmmo && ammoInMySide && ammoBoxes.length > 0) {
+            if (lowAmmo && ammoBoxOnMySide) {
                 // Prioridade: Munição no meu lado
-                botAITarget.x = ammoBoxes[0].x;
-                botAITarget.y = ammoBoxes[0].y;
-            } else if (lowAmmo && !ammoInMySide) {
+                botAITarget.x = ammoBoxOnMySide.x;
+                botAITarget.y = ammoBoxOnMySide.y;
+            } else if (lowAmmo && !ammoBoxOnMySide) {
                 // MUNIÇÃO NO LADO DO P1 E EU ESTOU VAZIO
                 botAITarget.y = Math.random() * GAME_HEIGHT;
                 botAITarget.x = GAME_WIDTH - (botDifficulty === 'impossible' ? 30 : (botDifficulty === 'hard' ? 50 : 100));
